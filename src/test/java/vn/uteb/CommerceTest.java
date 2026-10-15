@@ -9,6 +9,12 @@ import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.mockito.ArgumentCaptor;
+import org.springframework.mock.web.MockHttpSession;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import jakarta.servlet.http.Cookie;
+import java.time.Instant;
 import static org.mockito.Mockito.*;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -109,6 +115,134 @@ class CommerceTest {
   Map<String,Object> body=registration();body.put("role",role);body.put("roles",role);body.put("verified",true);body.put("storeId",1);
   registerRequest(body).andExpect(status().isOk());
   Account a=registeredAccount();assertThat(a.roles).isEqualTo("CUSTOMER");assertThat(a.verified).isFalse();assertThat(a.storeId).isNull();
+ }
+ @Autowired JwtService loginJwt;
+
+ String loginBody(String email,String password)throws Exception{
+  return json.writeValueAsString(Map.of("email",email,"password",password));
+ }
+ String loginToken(MvcResult result)throws Exception{
+  return json.readTree(result.getResponse().getContentAsByteArray()).get("token").asText();
+ }
+ MvcResult apiLogin()throws Exception{
+  SecurityContextHolder.clearContext();
+  return mvc.perform(post("/api/auth/login").contentType("application/json")
+   .content(loginBody("customer@uteb.vn","Uteb@12345"))).andExpect(status().isOk()).andReturn();
+ }
+ @ParameterizedTest @ValueSource(strings={"customer","staff","manager","admin","vendor","shipper"})
+ void loginSessionAndJwtHaveAccountAuthorities(String account)throws Exception{
+  String email=account+"@uteb.vn";MockHttpSession session=new MockHttpSession();String oldId=session.getId();
+  MvcResult result=mvc.perform(post("/shop-api/auth/login").session(session).with(csrf()).contentType("application/json")
+   .content(loginBody(email,"Uteb@12345"))).andExpect(status().isOk()).andReturn();
+  assertThat(session.getId()).isNotEqualTo(oldId);
+  SecurityContext context=(SecurityContext)session.getAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY);
+  String[] expected=Arrays.stream(s.byEmail(email).roles.split(",")).map(role->"ROLE_"+role).toArray(String[]::new);
+  assertThat(context.getAuthentication().getName()).isEqualTo(email);
+  assertThat(context.getAuthentication().getAuthorities()).extracting("authority").containsExactlyInAnyOrder((Object[])expected);
+  assertThat(loginJwt.verify(loginToken(result)).getAuthorities()).extracting("authority").containsExactlyInAnyOrder((Object[])expected);
+  SecurityContextHolder.clearContext();
+  mvc.perform(get("/shop-api/account").session(session)).andExpect(status().isOk()).andExpect(jsonPath("$.user.email").value(email));
+  SecurityContextHolder.clearContext();
+  mvc.perform(get("/api/account").session(session)).andExpect(status().isUnauthorized());
+  SecurityContextHolder.clearContext();
+  mvc.perform(get("/api/account").header("Authorization","Bearer "+loginToken(result)))
+   .andExpect(status().isOk()).andExpect(jsonPath("$.user.email").value(email));
+ }
+ @ParameterizedTest @ValueSource(strings={"/shop-api","/api"})
+ void loginRejectsWrongPassword(String prefix)throws Exception{
+  MvcResult result=mvc.perform(post(prefix+"/auth/login").with(csrf()).contentType("application/json")
+   .content(loginBody("customer@uteb.vn","Wrong@12345"))).andExpect(status().isBadRequest())
+   .andExpect(jsonPath("$.message").value("Email hoặc mật khẩu không đúng."))
+   .andExpect(jsonPath("$.token").doesNotExist()).andReturn();
+  assertThat(result.getRequest().getSession(false)).isNull();
+ }
+ @ParameterizedTest @ValueSource(strings={"/shop-api","/api"})
+ void loginRejectsLockedAccount(String prefix)throws Exception{
+  s.byEmail("customer@uteb.vn").active=false;registrationEm.flush();registrationEm.clear();
+  MvcResult result=mvc.perform(post(prefix+"/auth/login").with(csrf()).contentType("application/json")
+   .content(loginBody("customer@uteb.vn","Uteb@12345"))).andExpect(status().isBadRequest())
+   .andExpect(jsonPath("$.message").value("Tài khoản chưa xác thực hoặc đã bị khóa."))
+   .andExpect(jsonPath("$.token").doesNotExist()).andReturn();
+  assertThat(result.getRequest().getSession(false)).isNull();
+ }
+ @ParameterizedTest @ValueSource(strings={"/shop-api","/api"})
+ void loginRequiredForProtectedAccount(String prefix)throws Exception{
+  SecurityContextHolder.clearContext();
+  mvc.perform(get(prefix+"/account")).andExpect(status().isUnauthorized());
+ }
+ // csrf() in other tests replaces the filter repository; reload the real cookie-based chain here.
+ @org.springframework.test.annotation.DirtiesContext(methodMode=org.springframework.test.annotation.DirtiesContext.MethodMode.BEFORE_METHOD)
+ @Test void loginLogoutUseBrowserCsrfAndInvalidateOnlyCurrentSession()throws Exception{
+  MvcResult bootstrap=mvc.perform(get("/shop-api/public/bootstrap")).andExpect(status().isOk()).andReturn();
+  Cookie before=bootstrap.getResponse().getCookie("XSRF-TOKEN");assertThat(before).isNotNull();
+  assertThat(json.readTree(bootstrap.getResponse().getContentAsByteArray()).get("csrf").asText()).isEqualTo(before.getValue());
+  String body=loginBody("customer@uteb.vn","Uteb@12345");
+  mvc.perform(post("/shop-api/auth/login").cookie(before).contentType("application/json").content(body)).andExpect(status().isForbidden());
+  mvc.perform(post("/shop-api/auth/login").cookie(before).header("X-XSRF-TOKEN","wrong").contentType("application/json").content(body))
+   .andExpect(status().isForbidden());
+  MvcResult loggedIn=mvc.perform(post("/shop-api/auth/login").cookie(before).header("X-XSRF-TOKEN",before.getValue())
+   .contentType("application/json").content(body)).andExpect(status().isOk()).andReturn();
+  assertThat(loggedIn.getResponse().getCookie("XSRF-TOKEN")).isNotNull();
+  assertThat(loggedIn.getResponse().getCookie("XSRF-TOKEN").getMaxAge()).isZero();
+  MockHttpSession session=(MockHttpSession)loggedIn.getRequest().getSession(false);assertThat(session).isNotNull();
+  SecurityContextHolder.clearContext();
+  MvcResult afterLogin=mvc.perform(get("/shop-api/public/bootstrap").session(session)).andExpect(status().isOk()).andReturn();
+  Cookie after=afterLogin.getResponse().getCookie("XSRF-TOKEN");assertThat(after).isNotNull();
+  assertThat(after.getValue()).isNotEqualTo(before.getValue());
+  SecurityContextHolder.clearContext();
+  MvcResult secondLogin=mvc.perform(post("/shop-api/auth/login").cookie(after).header("X-XSRF-TOKEN",after.getValue()).contentType("application/json").content(body))
+   .andExpect(status().isOk()).andReturn();
+  MockHttpSession other=(MockHttpSession)secondLogin.getRequest().getSession(false);
+  SecurityContextHolder.clearContext();
+  mvc.perform(post("/shop-api/auth/logout").session(session).cookie(after)).andExpect(status().isForbidden());
+  mvc.perform(post("/shop-api/auth/logout").session(session).cookie(after).header("X-XSRF-TOKEN",before.getValue()))
+   .andExpect(status().isForbidden());
+  assertThat(session.isInvalid()).isFalse();
+  SecurityContextHolder.clearContext();
+  mvc.perform(get("/api/account").header("Authorization","Bearer "+loginToken(loggedIn))).andExpect(status().isOk());
+  SecurityContextHolder.clearContext();
+  MvcResult logout=mvc.perform(post("/shop-api/auth/logout").session(session).cookie(after).header("X-XSRF-TOKEN",after.getValue()))
+   .andExpect(status().isOk()).andReturn();
+  assertThat(session.isInvalid()).isTrue();assertThat(other.isInvalid()).isFalse();
+  assertThat(logout.getResponse().getCookie("XSRF-TOKEN").getMaxAge()).isZero();
+  SecurityContextHolder.clearContext();
+  mvc.perform(get("/shop-api/account").cookie(new Cookie("JSESSIONID",session.getId()))).andExpect(status().isUnauthorized());
+  mvc.perform(get("/api/account").header("Authorization","Bearer "+loginToken(loggedIn))).andExpect(status().isUnauthorized());
+  mvc.perform(get("/api/account").header("Authorization","Bearer "+loginToken(secondLogin))).andExpect(status().isUnauthorized());
+  mvc.perform(get("/shop-api/account").session(other)).andExpect(status().isOk());
+  SecurityContextHolder.clearContext();
+  MvcResult afterLogout=mvc.perform(get("/shop-api/public/bootstrap")).andExpect(status().isOk()).andReturn();
+  assertThat(afterLogout.getResponse().getCookie("XSRF-TOKEN").getValue()).isNotEqualTo(after.getValue());
+ }
+ @Test void apiLogoutRevokesOldJwtAndNewLoginWorksWithoutSessionOrCsrf()throws Exception{
+  MvcResult first=apiLogin();String oldToken=loginToken(first);assertThat(first.getRequest().getSession(false)).isNull();
+  mvc.perform(get("/api/account").header("Authorization","Bearer "+oldToken)).andExpect(status().isOk());
+  SecurityContextHolder.clearContext();
+  mvc.perform(post("/api/auth/logout").header("Authorization","Bearer "+oldToken)).andExpect(status().isOk());
+  registrationEm.flush();registrationEm.clear();SecurityContextHolder.clearContext();
+  mvc.perform(get("/api/account").header("Authorization","Bearer "+oldToken)).andExpect(status().isUnauthorized());
+  MvcResult second=apiLogin();String newToken=loginToken(second);assertThat(newToken).isNotEqualTo(oldToken);
+  assertThat(second.getRequest().getSession(false)).isNull();
+  mvc.perform(get("/api/account").header("Authorization","Bearer "+newToken)).andExpect(status().isOk());
+ }
+ String signedLoginToken(long expiration)throws Exception{
+  Account a=s.byEmail("customer@uteb.vn");
+  String header=JwtService.enc("{\"alg\":\"HS256\",\"typ\":\"JWT\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+  String payload=JwtService.enc(json.writeValueAsBytes(Map.of("sub",a.email,"exp",expiration,"ver",a.tokenVersion)));
+  String raw=header+"."+payload;return raw+"."+JwtService.enc(loginJwt.sign(raw));
+ }
+ @Test void jwtPastExpirationIsRejectedByApi()throws Exception{
+  String expired=signedLoginToken(Instant.now().minusSeconds(60).getEpochSecond());
+  mvc.perform(get("/api/account").header("Authorization","Bearer "+expired)).andExpect(status().isUnauthorized());
+ }
+ @Test void jwtExpirationEqualToNowIsRejected()throws Exception{
+  Instant fixed=Instant.parse("2026-10-16T00:00:00Z");
+  String expired=signedLoginToken(fixed.getEpochSecond());String valid=signedLoginToken(fixed.plusSeconds(1).getEpochSecond());
+  try(var time=mockStatic(Instant.class,CALLS_REAL_METHODS)){
+   time.when(Instant::now).thenReturn(fixed);
+   assertThatThrownBy(()->loginJwt.verify(expired)).isInstanceOf(SecurityException.class);
+   assertThat(loginJwt.verify(valid).getName()).isEqualTo("customer@uteb.vn");
+  }
  }
  Product custom(Long store){return s.all(Product.class).stream().filter(p->p.storeId.equals(store)&&p.customizable).findFirst().orElseThrow();}
  String ingredients(){return List.of("PROTEIN","RICE","BEANS","SAUCE").stream().map(g->s.all(Ingredient.class).stream().filter(i->i.groupName.equals(g)&&i.price.signum()==0).findFirst().orElseThrow().id.toString()).collect(java.util.stream.Collectors.joining(","));}
