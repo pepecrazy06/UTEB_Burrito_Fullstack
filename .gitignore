@@ -1,0 +1,26 @@
+target/
+data/
+.env
+.env.*
+!.env.example
+*.log
+.idea/
+.vscode/
+*.iml
+runtime/*.jar
+*.mv.db
+*.trace.db
+*.jks
+*.keystore
+*.p12
+*.pfx
+.DS_Store
+Thumbs.db
+# Manifest of the original ZIP, not of this evolving source repository.
+/SHA256SUMS.json
+
+# Pending review before publication.
+/README.md
+/docs/
+/start-demo.cmd
+/start-demo.sh
