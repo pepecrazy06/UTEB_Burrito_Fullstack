@@ -244,6 +244,180 @@ class CommerceTest {
    assertThat(loginJwt.verify(valid).getName()).isEqualTo("customer@uteb.vn");
   }
  }
+ @Autowired org.springframework.transaction.PlatformTransactionManager otpTransactionManager;
+ <T> T otpTransaction(java.util.function.Supplier<T> work){
+  return new org.springframework.transaction.support.TransactionTemplate(otpTransactionManager).execute(status->work.get());
+ }
+ Account otpAccount(String purpose){
+  Account a=new Account();a.email="otp-"+UUID.randomUUID()+"@example.com";a.name="OTP Test";
+  a.passwordHash=s.hashPassword("Original@123");a.otpHash=s.hashPassword("123456");a.otpPurpose=purpose;
+  a.otpSent=java.time.LocalDateTime.now().minusMinutes(2);a.otpExpires=java.time.LocalDateTime.now().plusMinutes(3);
+  return s.save(a);
+ }
+ Account otpReload(String email){registrationEm.flush();registrationEm.clear();return s.byEmail(email);}
+ ResultActions otpSubmit(Map<String,Object> body)throws Exception{
+  return mvc.perform(post("/shop-api/auth/otp/verify").with(csrf()).contentType("application/json").content(json.writeValueAsString(body)));
+ }
+ ResultActions otpSend(Map<String,Object> body)throws Exception{
+  return mvc.perform(post("/shop-api/auth/otp/request").with(csrf()).contentType("application/json").content(json.writeValueAsString(body)));
+ }
+ SimpleMailMessage otpMessage(){
+  ArgumentCaptor<SimpleMailMessage> capture=ArgumentCaptor.forClass(SimpleMailMessage.class);
+  verify(registrationMail).send(capture.capture());return capture.getValue();
+ }
+ String otpCode(SimpleMailMessage message){
+  var matcher=java.util.regex.Pattern.compile("(?<![0-9])[0-9]{6}(?![0-9])").matcher(Objects.requireNonNull(message.getText()));
+  assertThat(matcher.find()).isTrue();return matcher.group();
+ }
+ @ParameterizedTest @ValueSource(strings={"VERIFY","RESET"})
+ void otpEmailContainsSixDigitsForAccountAndDatabaseContainsOnlyHash(String purpose)throws Exception{
+  Account a=otpAccount(purpose);String email=a.email;
+  otpSend(Map.of("email",email,"purpose",purpose)).andExpect(status().isOk());
+  SimpleMailMessage message=otpMessage();String code=otpCode(message);a=otpReload(email);
+  assertThat(code).matches("[0-9]{6}");assertThat(message.getTo()).containsExactly(email);
+  assertThat(message.getFrom()).isNotBlank();
+  assertThat(message.getSubject()).contains(purpose.equals("VERIFY")?"xác thực tài khoản":"đặt lại mật khẩu");
+  assertThat(message.getText()).contains("5 phút");
+  assertThat(a.otpHash).startsWith("$2").isNotEqualTo(code);
+  assertThat(new BCryptPasswordEncoder().matches(code,a.otpHash)).isTrue();
+  assertThat(a.otpPurpose).isEqualTo(purpose);assertThat(a.otpExpires).isEqualTo(a.otpSent.plusMinutes(5));
+  assertThat(json.readTree(json.writeValueAsBytes(a)).has("otpHash")).isFalse();
+ }
+ @ParameterizedTest @ValueSource(strings={"VERIFY","RESET"})
+ void otpCorrectPurposeWorksWithAndWithoutExplicitPurpose(String purpose)throws Exception{
+  for(boolean explicit:List.of(false,true)){
+   Account a=otpAccount(purpose);String email=a.email;
+   Map<String,Object> body=new HashMap<>(Map.of("email",email,"otp","123456"));
+   if(purpose.equals("RESET"))body.put("password","Replacement@123");if(explicit)body.put("purpose",purpose);
+   otpSubmit(body).andExpect(status().isOk());a=otpReload(email);
+   assertThat(a.otpHash).isNull();assertThat(a.verified).isEqualTo(purpose.equals("VERIFY"));
+   assertThat(new BCryptPasswordEncoder().matches(purpose.equals("RESET")?"Replacement@123":"Original@123",a.passwordHash)).isTrue();
+  }
+ }
+ @ParameterizedTest @ValueSource(strings={"654321","","12345","1234567","abcdef","１２３４５６"," 123456 "})
+ void otpWrongOrMalformedCodeIsRejected(String code)throws Exception{
+  Account a=otpAccount("VERIFY");String email=a.email;
+  otpSubmit(Map.of("email",email,"otp",code)).andExpect(status().isBadRequest());
+  a=otpReload(email);assertThat(a.verified).isFalse();assertThat(a.otpAttempts).isEqualTo(1);assertThat(a.otpHash).isNotNull();
+ }
+ @Test void otpMissingOrNumericCodeIsRejected()throws Exception{
+  Account a=otpAccount("VERIFY");
+  otpSubmit(Map.of("email",a.email)).andExpect(status().isBadRequest());
+  otpSubmit(Map.of("email",a.email,"otp",123456)).andExpect(status().isBadRequest());
+  assertThat(otpReload(a.email).verified).isFalse();
+ }
+ @Test void otpFromAnotherAccountIsRejected()throws Exception{
+  Account a=otpAccount("VERIFY"),b=otpAccount("VERIFY");b.otpHash=s.hashPassword("654321");
+  otpSubmit(Map.of("email",b.email,"otp","123456")).andExpect(status().isBadRequest());
+  assertThat(otpReload(b.email).verified).isFalse();assertThat(s.byEmail(a.email).verified).isFalse();
+ }
+ @ParameterizedTest @ValueSource(ints={-1,0,1})
+ void otpExpirationBoundary(int secondsFromExpiry)throws Exception{
+  Account a=otpAccount("VERIFY");var expiry=java.time.LocalDateTime.of(2026,10,16,12,0);
+  a.otpExpires=expiry;var now=expiry.plusSeconds(secondsFromExpiry);
+  try(var clock=mockStatic(java.time.LocalDateTime.class,CALLS_REAL_METHODS)){
+   clock.when(java.time.LocalDateTime::now).thenReturn(now);
+   assertThat(s.checkOtp(Map.of("email",a.email,"otp","123456"))).isEqualTo(secondsFromExpiry<0);
+  }
+  assertThat(otpReload(a.email).verified).isEqualTo(secondsFromExpiry<0);
+ }
+ @Test void otpMissingExpiryIsRejected()throws Exception{
+  Account a=otpAccount("VERIFY");a.otpExpires=null;
+  otpSubmit(Map.of("email",a.email,"otp","123456")).andExpect(status().isBadRequest());
+  assertThat(otpReload(a.email).verified).isFalse();
+ }
+ @ParameterizedTest @ValueSource(ints={4,5})
+ @Transactional(propagation=org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
+ void otpAttemptLimitPersistsAcrossRequests(int wrongAttempts)throws Exception{
+  Account a=otpTransaction(()->otpAccount("VERIFY"));
+  try{
+   for(int i=1;i<=wrongAttempts;i++){
+    otpSubmit(Map.of("email",a.email,"otp","654321")).andExpect(status().isBadRequest());
+    assertThat(otpTransaction(()->s.byEmail(a.email).otpAttempts)).isEqualTo(i);
+   }
+   otpSubmit(Map.of("email",a.email,"otp","123456")).andExpect(status().is(wrongAttempts==4?200:400));
+   assertThat(otpTransaction(()->s.byEmail(a.email).verified)).isEqualTo(wrongAttempts==4);
+   assertThat(otpTransaction(()->s.byEmail(a.email).otpAttempts)).isEqualTo(5);
+  }finally{otpTransaction(()->{registrationEm.remove(registrationEm.find(Account.class,a.id));return null;});}
+ }
+ @Test void otpCannotBeUsedTwice()throws Exception{
+  Account a=otpAccount("VERIFY");Map<String,Object> body=Map.of("email",a.email,"otp","123456");
+  otpSubmit(body).andExpect(status().isOk());assertThat(otpReload(a.email).otpHash).isNull();
+  otpSubmit(body).andExpect(status().isBadRequest());
+ }
+ @ParameterizedTest @ValueSource(ints={59,60,61})
+ void otpResendBoundaryAndState(int elapsedSeconds)throws Exception{
+  Account a=otpAccount("VERIFY");var sent=java.time.LocalDateTime.of(2026,10,16,12,0);
+  a.otpSent=sent;a.otpExpires=sent.plusMinutes(5);a.otpAttempts=4;String oldHash=a.otpHash;
+  var now=sent.plusSeconds(elapsedSeconds);
+  try(var clock=mockStatic(java.time.LocalDateTime.class,CALLS_REAL_METHODS)){
+   clock.when(java.time.LocalDateTime::now).thenReturn(now);
+   otpSend(Map.of("email",a.email,"purpose","VERIFY")).andExpect(status().is(elapsedSeconds<60?400:200));
+  }
+  a=otpReload(a.email);
+  if(elapsedSeconds<60){assertThat(a.otpHash).isEqualTo(oldHash);assertThat(a.otpAttempts).isEqualTo(4);verifyNoInteractions(registrationMail);}
+  else{assertThat(a.otpHash).isNotEqualTo(oldHash);assertThat(a.otpSent).isEqualTo(now);
+   assertThat(a.otpExpires).isEqualTo(now.plusMinutes(5));assertThat(a.otpAttempts).isZero();
+   assertThat(new BCryptPasswordEncoder().matches(otpCode(otpMessage()),a.otpHash)).isTrue();}
+ }
+ @ParameterizedTest @ValueSource(strings={"VERIFY","RESET"})
+ void otpCannotBeUsedForOppositeOperation(String storedPurpose)throws Exception{
+  Account a=otpAccount(storedPurpose);String hash=a.passwordHash;
+  Map<String,Object> body=new HashMap<>(Map.of("email",a.email,"otp","123456"));
+  if(storedPurpose.equals("VERIFY"))body.put("password","Replacement@123");
+  otpSubmit(body).andExpect(status().isBadRequest());
+  body.put("purpose",storedPurpose);otpSubmit(body).andExpect(status().isBadRequest());
+  a=otpReload(a.email);assertThat(a.verified).isFalse();assertThat(a.passwordHash).isEqualTo(hash);
+  assertThat(a.otpHash).isNotNull();assertThat(a.otpAttempts).isZero();
+ }
+ @ParameterizedTest @ValueSource(strings={"","INVALID","RESET"})
+ void otpExplicitPurposeMustMatchOperationAndDatabase(String requestedPurpose)throws Exception{
+  Account a=otpAccount("VERIFY");
+  otpSubmit(Map.of("email",a.email,"otp","123456","purpose",requestedPurpose)).andExpect(status().isBadRequest());
+  a=otpReload(a.email);assertThat(a.verified).isFalse();assertThat(a.otpHash).isNotNull();assertThat(a.otpAttempts).isZero();
+ }
+ @ParameterizedTest @ValueSource(strings={"","INVALID","verify"})
+ void otpRequestRejectsInvalidPurpose(String purpose)throws Exception{
+  Account a=otpAccount("VERIFY");String hash=a.otpHash;
+  otpSend(Map.of("email",a.email,"purpose",purpose)).andExpect(status().isBadRequest());
+  assertThat(otpReload(a.email).otpHash).isEqualTo(hash);verifyNoInteractions(registrationMail);
+ }
+ @Test void otpRequestRejectsMissingPurpose()throws Exception{
+  otpSend(Map.of("email","customer@uteb.vn")).andExpect(status().isBadRequest());verifyNoInteractions(registrationMail);
+ }
+ @ParameterizedTest @ValueSource(strings={"","INVALID"})
+ void otpInvalidStoredPurposeIsRejected(String purpose)throws Exception{
+  Account a=otpAccount(purpose);
+  otpSubmit(Map.of("email",a.email,"otp","123456")).andExpect(status().isBadRequest());
+  assertThat(otpReload(a.email).verified).isFalse();
+ }
+ @Test void otpNullStoredPurposeIsRejected()throws Exception{
+  Account a=otpAccount(null);
+  otpSubmit(Map.of("email",a.email,"otp","123456")).andExpect(status().isBadRequest());assertThat(otpReload(a.email).verified).isFalse();
+ }
+ @Test void otpUnknownEmailDoesNotSendMail()throws Exception{
+  otpSend(Map.of("email","missing-otp@example.com","purpose","VERIFY")).andExpect(status().isOk())
+   .andExpect(jsonPath("$.message").value("Nếu email tồn tại, mã xác thực sẽ được gửi."));verifyNoInteractions(registrationMail);
+ }
+ @Test void otpVerifiedAccountDoesNotReceiveAnotherVerifyCode()throws Exception{
+  Account a=otpAccount("VERIFY");a.verified=true;String hash=a.otpHash;
+  otpSend(Map.of("email",a.email,"purpose","VERIFY")).andExpect(status().isOk())
+   .andExpect(jsonPath("$.message").value("Tài khoản đã xác thực."));
+  assertThat(otpReload(a.email).otpHash).isEqualTo(hash);verifyNoInteractions(registrationMail);
+ }
+ @Test @Transactional(propagation=org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
+ void otpSmtpFailureRollsBackOtpState()throws Exception{
+  Account a=otpTransaction(()->{Account created=otpAccount("VERIFY");created.otpAttempts=3;registrationEm.flush();registrationEm.refresh(created);return created;});
+  try{
+   doThrow(new org.springframework.mail.MailSendException("SMTP test failure")).when(registrationMail).send(any(SimpleMailMessage.class));
+   otpSend(Map.of("email",a.email,"purpose","RESET")).andExpect(status().isInternalServerError());
+   Account after=otpTransaction(()->s.byEmail(a.email));
+   assertThat(after.otpHash).isEqualTo(a.otpHash);assertThat(after.otpPurpose).isEqualTo(a.otpPurpose);
+   assertThat(after.otpSent).isEqualTo(a.otpSent);assertThat(after.otpExpires).isEqualTo(a.otpExpires);
+   assertThat(after.otpAttempts).isEqualTo(3);assertThat(after.passwordHash).isEqualTo(a.passwordHash);assertThat(after.verified).isFalse();
+   verify(registrationMail).send(any(SimpleMailMessage.class));
+  }finally{otpTransaction(()->{registrationEm.remove(registrationEm.find(Account.class,a.id));return null;});}
+ }
  Product custom(Long store){return s.all(Product.class).stream().filter(p->p.storeId.equals(store)&&p.customizable).findFirst().orElseThrow();}
  String ingredients(){return List.of("PROTEIN","RICE","BEANS","SAUCE").stream().map(g->s.all(Ingredient.class).stream().filter(i->i.groupName.equals(g)&&i.price.signum()==0).findFirst().orElseThrow().id.toString()).collect(java.util.stream.Collectors.joining(","));}
  Map<String,Object> checkout(String key,String type){return new HashMap<>(Map.of("checkoutKey",key,"type",type,"contactName","Test Customer","phone","0901234567","address","25 Võ Văn Ngân, Thủ Đức","paymentMethod","COD","scheduledAt","ASAP"));}
