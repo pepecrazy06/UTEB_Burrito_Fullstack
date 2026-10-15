@@ -1,5 +1,15 @@
 package vn.uteb;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.Arguments;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.mockito.ArgumentCaptor;
+import static org.mockito.Mockito.*;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,10 +24,92 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static vn.uteb.Domain.*;
 
-@SpringBootTest(properties={"spring.datasource.url=jdbc:h2:mem:utebtest;MODE=MSSQLServer;DB_CLOSE_DELAY=-1","spring.jpa.hibernate.ddl-auto=create-drop","uteb.vnpay.secret=test-signing-secret-only"})
+@SpringBootTest(properties={"spring.datasource.url=jdbc:h2:mem:utebtest;MODE=MSSQLServer;DB_CLOSE_DELAY=-1","spring.jpa.hibernate.ddl-auto=create-drop","uteb.vnpay.secret=test-signing-secret-only","uteb.mail.enabled=true"})
 @AutoConfigureMockMvc @Transactional
 class CommerceTest {
  @Autowired ShopService s;@Autowired MockMvc mvc;@Autowired ObjectMapper json;@Autowired Payments payments;
+ @MockitoBean JavaMailSender registrationMail;
+ @jakarta.persistence.PersistenceContext jakarta.persistence.EntityManager registrationEm;
+
+ Map<String,Object> registration(){return new HashMap<>(Map.of("email","new-registration@example.com","name","New Customer","phone","0901234567","password","Register@123"));}
+ ResultActions registerRequest(Map<String,Object> body)throws Exception{
+  return mvc.perform(post("/shop-api/auth/register").with(csrf()).contentType("application/json").content(json.writeValueAsString(body)));
+ }
+ Account registeredAccount() {
+  registrationEm.flush();registrationEm.clear();
+  return s.byEmail("new-registration@example.com");
+ }
+ String registrationOtp(){
+  ArgumentCaptor<SimpleMailMessage> message=ArgumentCaptor.forClass(SimpleMailMessage.class);
+  verify(registrationMail).send(message.capture());
+  assertThat(message.getValue().getTo()).containsExactly("new-registration@example.com");
+  var matcher=java.util.regex.Pattern.compile("\\b[0-9]{6}\\b").matcher(Objects.requireNonNull(message.getValue().getText()));
+  assertThat(matcher.find()).isTrue();return matcher.group();
+ }
+ @Test void registrationSucceedsWithBcryptAndUnverifiedCustomer()throws Exception{
+  Map<String,Object> body=registration();body.put("email","  NEW-REGISTRATION@EXAMPLE.COM  ");
+  registerRequest(body).andExpect(status().isOk());
+  Account a=registeredAccount();assertThat(a).isNotNull();
+  assertThat(a.name).isEqualTo("New Customer");assertThat(a.phone).isEqualTo("0901234567");
+  assertThat(a.active).isTrue();assertThat(a.verified).isFalse();assertThat(a.roles).isEqualTo("CUSTOMER");
+  assertThat(a.passwordHash).startsWith("$2").isNotEqualTo(body.get("password"));
+  assertThat(new BCryptPasswordEncoder().matches("Register@123",a.passwordHash)).isTrue();
+  String otp=registrationOtp();assertThat(a.otpPurpose).isEqualTo("VERIFY");
+  assertThat(new BCryptPasswordEncoder().matches(otp,a.otpHash)).isTrue();
+ }
+ @Test void registrationRejectsDuplicateEmailIgnoringCase()throws Exception{
+  Account existing=s.byEmail("customer@uteb.vn");String hash=existing.passwordHash;
+  Map<String,Object> body=registration();body.put("email","  CUSTOMER@UTEB.VN  ");
+  registerRequest(body).andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value("Email đã được đăng ký."));
+  assertThat(s.byEmail("customer@uteb.vn").passwordHash).isEqualTo(hash);
+  verifyNoInteractions(registrationMail);
+ }
+ static java.util.stream.Stream<Arguments> invalidRegistrations(){return java.util.stream.Stream.of(
+  Arguments.of("email","","Email không hợp lệ."),Arguments.of("email","invalid-email","Email không hợp lệ."),
+  Arguments.of("email","a".repeat(150)+"@example.com","Email không hợp lệ."),
+  Arguments.of("name"," ","Tên cần từ 2 đến 100 ký tự."),Arguments.of("name","a".repeat(101),"Tên cần từ 2 đến 100 ký tự."),
+  Arguments.of("phone","invalid-phone","Số điện thoại không hợp lệ."),Arguments.of("phone","123","Số điện thoại không hợp lệ."),
+  Arguments.of("password","","Mật khẩu cần từ 8 đến 100 ký tự."),Arguments.of("password","short","Mật khẩu cần từ 8 đến 100 ký tự."),
+  Arguments.of("password","a".repeat(101),"Mật khẩu cần từ 8 đến 100 ký tự."),
+  Arguments.of("password","a".repeat(73),"Mật khẩu đăng ký không được vượt quá 72 byte UTF-8."),
+  Arguments.of("password","ậ".repeat(25),"Mật khẩu đăng ký không được vượt quá 72 byte UTF-8."),
+  Arguments.of("email",null,"Email không hợp lệ."),Arguments.of("name",null,"Tên cần từ 2 đến 100 ký tự."),
+  Arguments.of("password",null,"Mật khẩu cần từ 8 đến 100 ký tự."));}
+ @ParameterizedTest @MethodSource("invalidRegistrations")
+ void registrationRejectsInvalidData(String field,Object value,String message)throws Exception{
+  long before=s.all(Account.class).size();Map<String,Object> body=registration();
+  if(value==null)body.remove(field);else body.put(field,value);
+  registerRequest(body).andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value(message));
+  assertThat(s.all(Account.class)).hasSize((int)before);verifyNoInteractions(registrationMail);
+ }
+ @Test void registrationUnverifiedAccountCannotLogin()throws Exception{
+  registerRequest(registration()).andExpect(status().isOk());assertThat(registeredAccount().verified).isFalse();
+  mvc.perform(post("/shop-api/auth/login").with(csrf()).contentType("application/json")
+   .content(json.writeValueAsString(Map.of("email","new-registration@example.com","password","Register@123"))))
+   .andExpect(status().isBadRequest()).andExpect(jsonPath("$.token").doesNotExist())
+   .andExpect(jsonPath("$.message").value("Tài khoản chưa xác thực hoặc đã bị khóa."));
+ }
+ @Test void registrationValidOtpVerifiesNewAccount()throws Exception{
+  registerRequest(registration()).andExpect(status().isOk());assertThat(registeredAccount().verified).isFalse();
+  mvc.perform(post("/shop-api/auth/otp/verify").with(csrf()).contentType("application/json")
+   .content(json.writeValueAsString(Map.of("email","new-registration@example.com","otp",registrationOtp()))))
+   .andExpect(status().isOk());
+  Account a=registeredAccount();assertThat(a.verified).isTrue();assertThat(a.otpHash).isNull();
+ }
+ @Test void registrationWrongOtpDoesNotVerifyAccount()throws Exception{
+  registerRequest(registration()).andExpect(status().isOk());String otp=registrationOtp();
+  String wrong=otp.equals("000000")?"000001":"000000";
+  mvc.perform(post("/shop-api/auth/otp/verify").with(csrf()).contentType("application/json")
+   .content(json.writeValueAsString(Map.of("email","new-registration@example.com","otp",wrong))))
+   .andExpect(status().isBadRequest());
+  Account a=registeredAccount();assertThat(a.verified).isFalse();assertThat(a.otpHash).isNotNull();
+ }
+ @ParameterizedTest @ValueSource(strings={"ADMIN","MANAGER","STAFF","VENDOR","SHIPPER","CUSTOMER,ADMIN"})
+ void registrationCannotGrantPrivilegedRole(String role)throws Exception{
+  Map<String,Object> body=registration();body.put("role",role);body.put("roles",role);body.put("verified",true);body.put("storeId",1);
+  registerRequest(body).andExpect(status().isOk());
+  Account a=registeredAccount();assertThat(a.roles).isEqualTo("CUSTOMER");assertThat(a.verified).isFalse();assertThat(a.storeId).isNull();
+ }
  Product custom(Long store){return s.all(Product.class).stream().filter(p->p.storeId.equals(store)&&p.customizable).findFirst().orElseThrow();}
  String ingredients(){return List.of("PROTEIN","RICE","BEANS","SAUCE").stream().map(g->s.all(Ingredient.class).stream().filter(i->i.groupName.equals(g)&&i.price.signum()==0).findFirst().orElseThrow().id.toString()).collect(java.util.stream.Collectors.joining(","));}
  Map<String,Object> checkout(String key,String type){return new HashMap<>(Map.of("checkoutKey",key,"type",type,"contactName","Test Customer","phone","0901234567","address","25 Võ Văn Ngân, Thủ Đức","paymentMethod","COD","scheduledAt","ASAP"));}
