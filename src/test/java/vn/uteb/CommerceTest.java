@@ -1141,6 +1141,83 @@ class CommerceTest {
   assertThat(yc15Ids(yc15Get(admin,"/admin/dashboard").andExpect(status().isOk()).andReturn(),"orders"))
    .contains(orderA.id,orderB.id);
  }
+ @Test void yc16RegistrationVerificationThenLoginPreservesCustomerRole()throws Exception{
+  registerRequest(registration()).andExpect(status().isOk());
+  String code=registrationOtp();Account account=registeredAccount();
+  assertThat(account.verified).isFalse();
+  mvc.perform(post("/api/auth/login").contentType("application/json")
+   .content(loginBody(account.email,"Register@123"))).andExpect(status().isBadRequest());
+  otpSubmit(Map.of("email",account.email,"otp",code)).andExpect(status().isOk());
+  assertThat(registeredAccount().verified).isTrue();
+  String token=loginToken(passwordApiLogin(account.email,"Register@123"));
+  yc15Get(token,"/account").andExpect(status().isOk())
+   .andExpect(jsonPath("$.user.email").value(account.email))
+   .andExpect(jsonPath("$.user.roles").value("CUSTOMER"));
+  yc15Get(token,"/admin/users").andExpect(status().isForbidden());
+ }
+ @Test void yc16AdminRoleChangeRevokesOldJwtAndOldSessionAuthority()throws Exception{
+  Account manager=yc15Account("MANAGER",1L);
+  MvcResult webLogin=passwordWebLogin(manager.email,"Original@123");
+  String oldJwt=loginToken(webLogin);
+  MockHttpSession session=(MockHttpSession)webLogin.getRequest().getSession(false);
+  yc15Get(oldJwt,"/admin/users").andExpect(status().isOk());
+  SecurityContextHolder.clearContext();
+  mvc.perform(get("/shop-api/admin/users").session(session)).andExpect(status().isOk());
+  yc15Post(yc14Token("admin"),"/admin/users",yc14UserBody(manager,"CUSTOMER",true))
+   .andExpect(status().isOk());
+  assertThat(manager.roles).isEqualTo("CUSTOMER");
+  yc15Get(oldJwt,"/admin/users").andExpect(status().isUnauthorized());
+  SecurityContextHolder.clearContext();
+  mvc.perform(get("/shop-api/admin/users").session(session)).andExpect(status().isForbidden());
+  String newJwt=yc15Token(manager);
+  yc15Get(newJwt,"/account").andExpect(status().isOk())
+   .andExpect(jsonPath("$.user.roles").value("CUSTOMER"));
+  yc15Get(newJwt,"/admin/users").andExpect(status().isForbidden());
+ }
+ @Test void yc16LockAfterLoginRejectsExistingJwtAndSession()throws Exception{
+  Account account=yc15Account("CUSTOMER",null);
+  MvcResult webLogin=passwordWebLogin(account.email,"Original@123");
+  String jwt=loginToken(webLogin);MockHttpSession session=(MockHttpSession)webLogin.getRequest().getSession(false);
+  yc15Get(jwt,"/account").andExpect(status().isOk());
+  account.active=false;registrationEm.flush();registrationEm.clear();
+  yc15Get(jwt,"/account").andExpect(status().isUnauthorized());
+  SecurityContextHolder.clearContext();
+  mvc.perform(get("/shop-api/account").session(session)).andExpect(status().isUnauthorized());
+  mvc.perform(post("/api/auth/login").contentType("application/json")
+   .content(loginBody(account.email,"Original@123"))).andExpect(status().isBadRequest());
+ }
+ void yc16AssertCredentialFieldsHidden(com.fasterxml.jackson.databind.JsonNode user){
+  for(String field:List.of("passwordHash","otpHash","otpPurpose","otpExpires","otpSent","otpAttempts","tokenVersion"))
+   assertThat(user.has(field)).as(field).isFalse();
+ }
+ @Test void yc16AccountResponsesHideCredentialAndOtpState()throws Exception{
+  Account account=yc15Account("CUSTOMER",null);
+  account.otpHash=s.hashPassword("654321");account.otpPurpose="RESET";
+  account.otpSent=java.time.LocalDateTime.now();account.otpExpires=account.otpSent.plusMinutes(5);
+  account.otpAttempts=2;
+  MvcResult login=passwordApiLogin(account.email,"Original@123");
+  yc16AssertCredentialFieldsHidden(json.readTree(login.getResponse().getContentAsByteArray()).get("user"));
+  String token=loginToken(login);
+  MvcResult own=yc15Get(token,"/account").andExpect(status().isOk()).andReturn();
+  yc16AssertCredentialFieldsHidden(json.readTree(own.getResponse().getContentAsByteArray()).get("user"));
+  MvcResult users=yc15Get(yc14Token("admin"),"/admin/users").andExpect(status().isOk()).andReturn();
+  boolean found=false;
+  for(var user:json.readTree(users.getResponse().getContentAsByteArray()))
+   if(account.email.equals(user.get("email").asText())){yc16AssertCredentialFieldsHidden(user);found=true;}
+  assertThat(found).isTrue();
+ }
+ @Test void yc16ResentOtpReplacesOldCodeBeforeVerification()throws Exception{
+  Account account=otpAccount("VERIFY");
+  try(var random=mockConstruction(java.security.SecureRandom.class,
+   (mock,context)->when(mock.nextInt(1000000)).thenReturn(654321))){
+   otpSend(Map.of("email",account.email,"purpose","VERIFY")).andExpect(status().isOk());
+  }
+  assertThat(otpCode(otpMessage())).isEqualTo("654321");
+  otpSubmit(Map.of("email",account.email,"otp","123456")).andExpect(status().isBadRequest());
+  assertThat(otpReload(account.email).verified).isFalse();
+  otpSubmit(Map.of("email",account.email,"otp","654321")).andExpect(status().isOk());
+  assertThat(otpReload(account.email).verified).isTrue();
+ }
  Product custom(Long store){return s.all(Product.class).stream().filter(p->p.storeId.equals(store)&&p.customizable).findFirst().orElseThrow();}
  String ingredients(){return List.of("PROTEIN","RICE","BEANS","SAUCE").stream().map(g->s.all(Ingredient.class).stream().filter(i->i.groupName.equals(g)&&i.price.signum()==0).findFirst().orElseThrow().id.toString()).collect(java.util.stream.Collectors.joining(","));}
  Map<String,Object> checkout(String key,String type){return new HashMap<>(Map.of("checkoutKey",key,"type",type,"contactName","Test Customer","phone","0901234567","address","25 Võ Văn Ngân, Thủ Đức","paymentMethod","COD","scheduledAt","ASAP"));}
