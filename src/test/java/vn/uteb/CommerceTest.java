@@ -418,6 +418,145 @@ class CommerceTest {
    verify(registrationMail).send(any(SimpleMailMessage.class));
   }finally{otpTransaction(()->{registrationEm.remove(registrationEm.find(Account.class,a.id));return null;});}
  }
+ Account passwordAccount(){
+  Account a=new Account();a.email="password-"+UUID.randomUUID()+"@example.com";a.name="Password Test";
+  a.active=true;a.verified=true;a.passwordHash=s.hashPassword("Original@123");return s.save(a);
+ }
+ MvcResult passwordApiLogin(String email,String password)throws Exception{
+  SecurityContextHolder.clearContext();
+  return mvc.perform(post("/api/auth/login").contentType("application/json").content(loginBody(email,password)))
+   .andExpect(status().isOk()).andReturn();
+ }
+ MvcResult passwordWebLogin(String email,String password)throws Exception{
+  SecurityContextHolder.clearContext();
+  return mvc.perform(post("/shop-api/auth/login").with(csrf()).contentType("application/json").content(loginBody(email,password)))
+   .andExpect(status().isOk()).andReturn();
+ }
+ Map<String,Object> resetBody(String email,String otp,String password){
+  return Map.of("email",email,"otp",otp,"password",password);
+ }
+ ResultActions changePasswordApi(String token,String current,String next)throws Exception{
+  return mvc.perform(put("/api/account/password").header("Authorization","Bearer "+token)
+   .contentType("application/json").content(json.writeValueAsString(Map.of("currentPassword",current,"password",next))));
+ }
+ @Test void passwordResetUsesResetOtpAndRevokesOldJwt()throws Exception{
+  Account a=passwordAccount();String email=a.email;String oldHash=a.passwordHash;int oldVersion=a.tokenVersion;
+  String oldJwt=loginToken(passwordApiLogin(email,"Original@123"));
+  otpSend(Map.of("email",email,"purpose","RESET")).andExpect(status().isOk());
+  String otp=otpCode(otpMessage());a=otpReload(email);assertThat(a.otpPurpose).isEqualTo("RESET");
+  otpSubmit(resetBody(email,otp,"Replacement@123")).andExpect(status().isOk());
+  a=otpReload(email);assertThat(a.passwordHash).startsWith("$2").isNotEqualTo(oldHash);
+  assertThat(new BCryptPasswordEncoder().matches("Replacement@123",a.passwordHash)).isTrue();
+  assertThat(a.tokenVersion).isEqualTo(oldVersion+1);assertThat(a.otpHash).isNull();
+  SecurityContextHolder.clearContext();
+  mvc.perform(get("/api/account").header("Authorization","Bearer "+oldJwt)).andExpect(status().isUnauthorized());
+  mvc.perform(post("/api/auth/login").contentType("application/json").content(loginBody(email,"Original@123")))
+   .andExpect(status().isBadRequest());
+  String newJwt=loginToken(passwordApiLogin(email,"Replacement@123"));
+  mvc.perform(get("/api/account").header("Authorization","Bearer "+newJwt)).andExpect(status().isOk());
+  otpSubmit(resetBody(email,otp,"Another@123")).andExpect(status().isBadRequest());
+ }
+ @Test void passwordResetKeepsInactiveAndUnverifiedStates()throws Exception{
+  Account a=otpAccount("RESET");a.active=false;a.verified=false;
+  otpSubmit(resetBody(a.email,"123456","Replacement@123")).andExpect(status().isOk());
+  a=otpReload(a.email);assertThat(a.active).isFalse();assertThat(a.verified).isFalse();
+  mvc.perform(post("/api/auth/login").contentType("application/json")
+   .content(loginBody(a.email,"Replacement@123"))).andExpect(status().isBadRequest());
+ }
+ @ParameterizedTest @ValueSource(strings={"654321","EXPIRED","VERIFY","USED"})
+ void passwordResetRejectsBadOtpWithoutChangingCredentials(String failure)throws Exception{
+  Account a=otpAccount("RESET");a.verified=true;String hash=a.passwordHash;int version=a.tokenVersion;
+  if(failure.equals("EXPIRED"))a.otpExpires=java.time.LocalDateTime.now().minusSeconds(1);
+  if(failure.equals("VERIFY"))a.otpPurpose="VERIFY";
+  if(failure.equals("USED"))a.otpHash=null;
+  otpSubmit(resetBody(a.email,failure.equals("654321")?"654321":"123456","Replacement@123"))
+   .andExpect(status().isBadRequest());
+  a=otpReload(a.email);assertThat(a.passwordHash).isEqualTo(hash);assertThat(a.tokenVersion).isEqualTo(version);
+  assertThat(new BCryptPasswordEncoder().matches("Original@123",a.passwordHash)).isTrue();
+ }
+ static java.util.stream.Stream<Arguments> invalidNewPasswords(){return java.util.stream.Stream.of(
+  Arguments.of("", "Mật khẩu cần từ 8 đến 100 ký tự."),
+  Arguments.of("short", "Mật khẩu cần từ 8 đến 100 ký tự."),
+  Arguments.of("a".repeat(101), "Mật khẩu cần từ 8 đến 100 ký tự."),
+  Arguments.of("a".repeat(73), "Mật khẩu mới không được vượt quá 72 byte UTF-8."),
+  Arguments.of("ậ".repeat(25), "Mật khẩu mới không được vượt quá 72 byte UTF-8."));}
+ @ParameterizedTest @MethodSource("invalidNewPasswords")
+ void passwordResetRejectsInvalidNewPasswordWithoutConsumingOtp(String invalid,String message)throws Exception{
+  Account a=otpAccount("RESET");a.verified=true;String oldHash=a.passwordHash,otpHash=a.otpHash;int oldVersion=a.tokenVersion;
+  otpSubmit(resetBody(a.email,"123456",invalid)).andExpect(status().isBadRequest())
+   .andExpect(jsonPath("$.message").value(message));
+  a=otpReload(a.email);assertThat(a.passwordHash).isEqualTo(oldHash);assertThat(a.tokenVersion).isEqualTo(oldVersion);
+  assertThat(a.otpHash).isEqualTo(otpHash);assertThat(a.otpAttempts).isZero();
+ }
+ @Test void passwordResetMissingPasswordCannotConsumeOtp()throws Exception{
+  Account a=otpAccount("RESET");String hash=a.passwordHash,otpHash=a.otpHash;int version=a.tokenVersion;
+  otpSubmit(Map.of("email",a.email,"otp","123456","purpose","RESET")).andExpect(status().isBadRequest());
+  a=otpReload(a.email);assertThat(a.passwordHash).isEqualTo(hash);assertThat(a.otpHash).isEqualTo(otpHash);
+  assertThat(a.tokenVersion).isEqualTo(version);
+ }
+ @Test void passwordChangeUsesBcryptRevokesOldJwtAndPendingResetOtp()throws Exception{
+  Account a=passwordAccount();String email=a.email;String oldHash=a.passwordHash;int oldVersion=a.tokenVersion;
+  String oldJwt=loginToken(passwordApiLogin(email,"Original@123"));
+  otpSend(Map.of("email",email,"purpose","RESET")).andExpect(status().isOk());
+  String otp=otpCode(otpMessage());a=otpReload(email);assertThat(a.otpHash).isNotNull();
+  changePasswordApi(oldJwt,"Original@123","Replacement@123").andExpect(status().isOk());
+  a=otpReload(email);assertThat(a.passwordHash).startsWith("$2").isNotEqualTo(oldHash);
+  assertThat(new BCryptPasswordEncoder().matches("Replacement@123",a.passwordHash)).isTrue();
+  assertThat(a.tokenVersion).isEqualTo(oldVersion+1);assertThat(a.otpHash).isNull();
+  SecurityContextHolder.clearContext();
+  mvc.perform(get("/api/account").header("Authorization","Bearer "+oldJwt)).andExpect(status().isUnauthorized());
+  otpSubmit(resetBody(email,otp,"Another@123")).andExpect(status().isBadRequest());
+  mvc.perform(post("/api/auth/login").contentType("application/json").content(loginBody(email,"Original@123")))
+   .andExpect(status().isBadRequest());
+  String newJwt=loginToken(passwordApiLogin(email,"Replacement@123"));
+  mvc.perform(get("/api/account").header("Authorization","Bearer "+newJwt)).andExpect(status().isOk());
+ }
+ @Test void passwordChangeRejectsWrongCurrentPasswordWithoutChangingState()throws Exception{
+  Account a=passwordAccount();a.otpPurpose="RESET";a.otpHash=s.hashPassword("123456");
+  String hash=a.passwordHash,otpHash=a.otpHash;int version=a.tokenVersion;
+  String token=loginToken(passwordApiLogin(a.email,"Original@123"));
+  changePasswordApi(token,"Wrong@123","Replacement@123").andExpect(status().isBadRequest());
+  a=otpReload(a.email);assertThat(a.passwordHash).isEqualTo(hash);assertThat(a.tokenVersion).isEqualTo(version);
+  assertThat(a.otpHash).isEqualTo(otpHash);
+  mvc.perform(get("/api/account").header("Authorization","Bearer "+token)).andExpect(status().isOk());
+ }
+ @ParameterizedTest @MethodSource("invalidNewPasswords")
+ void passwordChangeRejectsInvalidNewPasswordWithoutPartialSave(String invalid,String message)throws Exception{
+  Account a=passwordAccount();a.otpPurpose="RESET";a.otpHash=s.hashPassword("123456");
+  String hash=a.passwordHash,otpHash=a.otpHash;int version=a.tokenVersion;
+  String token=loginToken(passwordApiLogin(a.email,"Original@123"));
+  changePasswordApi(token,"Original@123",invalid).andExpect(status().isBadRequest())
+   .andExpect(jsonPath("$.message").value(message));
+  a=otpReload(a.email);assertThat(a.passwordHash).isEqualTo(hash);assertThat(a.tokenVersion).isEqualTo(version);
+  assertThat(a.otpHash).isEqualTo(otpHash);
+ }
+ @Test void passwordChangeRequiresAuthenticationAndWebCsrf()throws Exception{
+  Account a=passwordAccount();String body=json.writeValueAsString(Map.of("currentPassword","Original@123","password","Replacement@123"));
+  SecurityContextHolder.clearContext();
+  mvc.perform(put("/api/account/password").contentType("application/json").content(body))
+   .andExpect(status().isUnauthorized());
+  MvcResult login=passwordWebLogin(a.email,"Original@123");
+  MockHttpSession session=(MockHttpSession)login.getRequest().getSession(false);
+  SecurityContextHolder.clearContext();
+  mvc.perform(put("/shop-api/account/password").session(session).contentType("application/json").content(body))
+   .andExpect(status().isForbidden());
+  mvc.perform(put("/shop-api/account/password").session(session).with(csrf().useInvalidToken())
+   .contentType("application/json").content(body)).andExpect(status().isForbidden());
+  assertThat(otpReload(a.email).passwordHash).isEqualTo(a.passwordHash);
+  mvc.perform(put("/shop-api/account/password").session(session).with(csrf())
+   .contentType("application/json").content(body)).andExpect(status().isOk());
+ }
+ @Test void passwordChangeKeepsExistingWebSession()throws Exception{
+  Account a=passwordAccount();MvcResult login=passwordWebLogin(a.email,"Original@123");
+  MockHttpSession session=(MockHttpSession)login.getRequest().getSession(false);
+  SecurityContextHolder.clearContext();
+  mvc.perform(put("/shop-api/account/password").session(session).with(csrf()).contentType("application/json")
+   .content(json.writeValueAsString(Map.of("currentPassword","Original@123","password","Replacement@123"))))
+   .andExpect(status().isOk());
+  SecurityContextHolder.clearContext();
+  mvc.perform(get("/shop-api/account").session(session)).andExpect(status().isOk())
+   .andExpect(jsonPath("$.user.email").value(a.email));
+ }
  Product custom(Long store){return s.all(Product.class).stream().filter(p->p.storeId.equals(store)&&p.customizable).findFirst().orElseThrow();}
  String ingredients(){return List.of("PROTEIN","RICE","BEANS","SAUCE").stream().map(g->s.all(Ingredient.class).stream().filter(i->i.groupName.equals(g)&&i.price.signum()==0).findFirst().orElseThrow().id.toString()).collect(java.util.stream.Collectors.joining(","));}
  Map<String,Object> checkout(String key,String type){return new HashMap<>(Map.of("checkoutKey",key,"type",type,"contactName","Test Customer","phone","0901234567","address","25 Võ Văn Ngân, Thủ Đức","paymentMethod","COD","scheduledAt","ASAP"));}

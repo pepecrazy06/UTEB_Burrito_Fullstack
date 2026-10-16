@@ -54,11 +54,12 @@ public class ShopService {
  boolean checkOtp(Map<String,Object>b){Account a=byEmail(str(b,"email"));String purpose=b.containsKey("password")?"RESET":"VERIFY";
   if(a==null||a.otpHash==null||a.otpExpires==null||!a.otpExpires.isAfter(LocalDateTime.now())||a.otpAttempts>=5)return false;
   if(!purpose.equals(a.otpPurpose)||(b.containsKey("purpose")&&!purpose.equals(str(b,"purpose"))))return false;
-  a.otpAttempts++;Object code=b.get("otp");if(!(code instanceof String otp)||!otp.matches("[0-9]{6}")||!encoder.matches(otp,a.otpHash))return false;
-  if("RESET".equals(a.otpPurpose)){passwordValid(str(b,"password"));a.passwordHash=encoder.encode(str(b,"password"));a.tokenVersion++;}else a.verified=true;a.otpHash=null;return true;
+  Object code=b.get("otp");if(!(code instanceof String otp)||!otp.matches("[0-9]{6}")||!encoder.matches(otp,a.otpHash)){a.otpAttempts++;return false;}
+  if("RESET".equals(a.otpPurpose)){String password=str(b,"password");passwordForAccount(password);a.passwordHash=encoder.encode(password);a.tokenVersion++;}else a.verified=true;a.otpAttempts++;a.otpHash=null;return true;
  }
  Account profile(Map<String,Object>b){Account a=me();String n=str(b,"name"),p=str(b,"phone");require(n.length()>=2&&n.length()<=100,"Tên không hợp lệ.");require(p.isEmpty()||p.matches("[+0-9 ()-]{8,20}"),"Số điện thoại không hợp lệ.");a.name=n;a.phone=p;return a;}
- void changePassword(Map<String,Object>b){Account a=me();require(encoder.matches(str(b,"currentPassword"),a.passwordHash),"Mật khẩu hiện tại không đúng.");passwordValid(str(b,"password"));a.passwordHash=encoder.encode(str(b,"password"));a.tokenVersion++;}
+ static void passwordForAccount(String password){passwordValid(password);require(password.getBytes(StandardCharsets.UTF_8).length<=72,"Mật khẩu mới không được vượt quá 72 byte UTF-8.");}
+ void changePassword(Map<String,Object>b){Account a=me();require(encoder.matches(str(b,"currentPassword"),a.passwordHash),"Mật khẩu hiện tại không đúng.");String password=str(b,"password");passwordForAccount(password);a.passwordHash=encoder.encode(password);a.tokenVersion++;if("RESET".equals(a.otpPurpose))a.otpHash=null;}
  Address address(Map<String,Object>b){Account a=me();Address d=str(b,"id").isEmpty()?new Address():get(Address.class,number(b,"id"));forbidden(d.userId==null||d.userId.equals(a.id));d.userId=a.id;d.label=str(b,"label");d.recipient=str(b,"recipient");d.phone=str(b,"phone");d.detail=str(b,"detail");require(d.detail.length()>=8&&d.detail.length()<=500,"Địa chỉ cần từ 8 đến 500 ký tự.");require(d.recipient.length()>=2&&d.phone.matches("[+0-9 ()-]{8,20}"),"Tên hoặc số điện thoại không hợp lệ.");d.defaultAddress=Boolean.parseBoolean(str(b,"defaultAddress"));if(d.defaultAddress)where(Address.class,"userId",a.id).forEach(x->x.defaultAddress=false);if(d.id==null)save(d);return d;}
  void deleteAddress(long id){Address d=get(Address.class,id);forbidden(d.userId.equals(me().id));em.remove(d);}
  record Quote(BigDecimal price,int calories,String description,String ids){}
