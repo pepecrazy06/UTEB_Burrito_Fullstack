@@ -749,6 +749,148 @@ class CommerceTest {
    .content(json.writeValueAsString(checkout("yc13-no-auth-order-01","DELIVERY"))))
    .andExpect(status().isUnauthorized());
  }
+ String yc14Token(String account)throws Exception{return loginToken(passwordApiLogin(account+"@uteb.vn","Uteb@12345"));}
+ ResultActions yc14Get(String token,String resource)throws Exception{
+  SecurityContextHolder.clearContext();
+  return mvc.perform(get("/api/admin/"+resource).header("Authorization","Bearer "+token));
+ }
+ ResultActions yc14Save(String token,String resource,Map<String,Object> body)throws Exception{
+  SecurityContextHolder.clearContext();
+  return mvc.perform(post("/api/admin/"+resource).header("Authorization","Bearer "+token)
+   .contentType("application/json").content(json.writeValueAsString(body)));
+ }
+ Account yc14Account(String roles){
+  Account a=new Account();a.email="yc14-"+UUID.randomUUID()+"@example.com";a.name="Role Test";
+  a.phone="0901234567";a.roles=roles;a.storeId=1L;a.active=true;a.verified=true;
+  a.passwordHash=s.hashPassword("Original@123");return s.save(a);
+ }
+ Map<String,Object> yc14UserBody(Account a,String roles,boolean active){
+  return new HashMap<>(Map.of("id",a.id,"email",a.email,"name","Updated Role Test",
+   "phone",a.phone,"storeId",a.storeId==null?"":a.storeId,"roles",roles,"active",active));
+ }
+ static java.util.stream.Stream<Arguments> yc14DeniedReads(){return java.util.stream.Stream.of(
+  Arguments.of("customer","users"),Arguments.of("customer","products"),Arguments.of("customer","settings"),
+  Arguments.of("staff","users"),Arguments.of("staff","products"),Arguments.of("staff","audit"),
+  Arguments.of("shipper","users"),Arguments.of("shipper","products"),Arguments.of("shipper","vouchers"),
+  Arguments.of("vendor","users"),Arguments.of("vendor","settings"),Arguments.of("vendor","audit"),
+   Arguments.of("manager","settings"),Arguments.of("manager","audit"),Arguments.of("manager","applications"));
+ }
+ @ParameterizedTest @MethodSource("yc14DeniedReads")
+ void yc14RoleMatrixRejectsDirectAdminApiReads(String actor,String resource)throws Exception{
+  yc14Get(yc14Token(actor),resource).andExpect(status().isForbidden());
+ }
+ static java.util.stream.Stream<Arguments> yc14AllowedReads(){return java.util.stream.Stream.of(
+  Arguments.of("manager","users"),Arguments.of("manager","products"),
+  Arguments.of("vendor","products"),Arguments.of("vendor","vouchers"),
+   Arguments.of("admin","users"),Arguments.of("admin","audit"),Arguments.of("admin","settings"));
+ }
+ @ParameterizedTest @MethodSource("yc14AllowedReads")
+ void yc14RoleMatrixAllowsDesignedAdminApiReads(String actor,String resource)throws Exception{
+  yc14Get(yc14Token(actor),resource).andExpect(status().isOk());
+ }
+ @ParameterizedTest @ValueSource(strings={"staff","manager","vendor","shipper","admin"})
+ void yc14OperationalRolesCanAccessDashboard(String actor)throws Exception{
+  yc14Get(yc14Token(actor),"dashboard").andExpect(status().isOk());
+ }
+ @Test void yc14CustomerCannotAccessDashboard()throws Exception{
+  yc14Get(yc14Token("customer"),"dashboard").andExpect(status().isForbidden());
+ }
+ @ParameterizedTest @ValueSource(strings={"customer","staff","shipper","vendor"})
+ void yc14NonAccountAdminsCannotWriteUsersEvenWithForgedRole(String actor)throws Exception{
+  Account target=s.byEmail("staff@uteb.vn");String oldRoles=target.roles;int oldVersion=target.tokenVersion;
+  yc14Save(yc14Token(actor),"users",yc14UserBody(target,"ADMIN",true)).andExpect(status().isForbidden());
+  assertThat(target.roles).isEqualTo(oldRoles);assertThat(target.tokenVersion).isEqualTo(oldVersion);
+ }
+ @ParameterizedTest @ValueSource(strings={"staff","shipper","vendor","manager"})
+ void yc14NonAdminsCannotWriteSystemSettings(String actor)throws Exception{
+  yc14Save(yc14Token(actor),"settings",Map.of("name","yc14","settingValue","forbidden"))
+   .andExpect(status().isForbidden());
+ }
+ @ParameterizedTest @ValueSource(strings={"staff","shipper"})
+ void yc14ManagerCanEditOrdinaryOperationalAccount(String role)throws Exception{
+  Account target=s.byEmail(role+"@uteb.vn");int oldVersion=target.tokenVersion;
+  yc14Save(yc14Token("manager"),"users",yc14UserBody(target,role.toUpperCase(Locale.ROOT),true))
+   .andExpect(status().isOk());
+  assertThat(target.roles).isEqualTo(role.toUpperCase(Locale.ROOT));
+  assertThat(target.name).isEqualTo("Updated Role Test");assertThat(target.tokenVersion).isEqualTo(oldVersion+1);
+ }
+ @ParameterizedTest @ValueSource(strings={"STAFF","SHIPPER"})
+ void yc14ManagerCannotCreateOperationalAccountUnderCurrentPolicy(String role)throws Exception{
+  String email="yc14-created-"+UUID.randomUUID()+"@example.com";
+  Map<String,Object> body=Map.of("email",email,"name","New Operational User","phone","0901234567",
+   "storeId",1,"roles",role,"active",true,"password","Original@123");
+  yc14Save(yc14Token("manager"),"users",body).andExpect(status().isForbidden());
+  assertThat(s.byEmail(email)).isNull();
+ }
+ @ParameterizedTest @ValueSource(strings={"manager","vendor"})
+ void yc14ManagerAndVendorCanManageProducts(String actor)throws Exception{
+  Map<String,Object> body=Map.of("storeId",1,"name","YC14 Burrito","category","Burrito",
+   "description","Role matrix product","price",69000,"stock",5,"calories",300,
+   "available",true,"customizable",false);
+  yc14Save(yc14Token(actor),"products",body).andExpect(status().isOk());
+  assertThat(s.all(Product.class)).anyMatch(p->p.name.equals("YC14 Burrito")&&p.storeId.equals(1L));
+ }
+ @Test void yc14StaffCanOperateOrder()throws Exception{
+  MealOrder order=s.all(MealOrder.class).stream().filter(o->"NEW".equals(o.status)).findFirst().orElseThrow();
+  String token=yc14Token("staff");SecurityContextHolder.clearContext();
+  mvc.perform(put("/api/orders/{id}/status",order.id).header("Authorization","Bearer "+token)
+   .contentType("application/json").content(json.writeValueAsString(Map.of("status","CONFIRMED"))))
+   .andExpect(status().isOk());
+  assertThat(order.status).isEqualTo("CONFIRMED");
+ }
+ @Test void yc14ShipperCanAdvanceAssignedDelivery()throws Exception{
+  MealOrder order=s.all(MealOrder.class).stream().filter(o->"DELIVERING".equals(o.status)).findFirst().orElseThrow();
+  String token=yc14Token("shipper");SecurityContextHolder.clearContext();
+  mvc.perform(put("/api/orders/{id}/status",order.id).header("Authorization","Bearer "+token)
+   .contentType("application/json").content(json.writeValueAsString(Map.of("status","COMPLETED","codCollected",true))))
+   .andExpect(status().isOk());
+  assertThat(order.status).isEqualTo("COMPLETED");
+ }
+ @ParameterizedTest @ValueSource(strings={"ADMIN","MANAGER","VENDOR","ADMIN,STAFF","ADMIN,SHIPPER","MANAGER,STAFF","MANAGER,SHIPPER","VENDOR,STAFF","ROOT,STAFF"})
+ void yc14ManagerCannotEditPrivilegedOrMixedRoleAccount(String roles)throws Exception{
+  Account target=yc14Account(roles);String oldName=target.name;int oldVersion=target.tokenVersion;
+  String manager=yc14Token("manager");
+  yc14Save(manager,"users",yc14UserBody(target,"STAFF",false)).andExpect(status().isForbidden());
+  assertThat(target.roles).isEqualTo(roles);assertThat(target.name).isEqualTo(oldName);
+  assertThat(target.active).isTrue();assertThat(target.tokenVersion).isEqualTo(oldVersion);
+  var users=json.readTree(yc14Get(manager,"users").andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray());
+  assertThat(users.findValuesAsText("email")).doesNotContain(target.email);
+ }
+ @ParameterizedTest @ValueSource(strings={"ADMIN","MANAGER","VENDOR","ADMIN,STAFF"})
+ void yc14ManagerCannotGrantPrivilegedRoles(String roles)throws Exception{
+  Account target=s.byEmail("staff@uteb.vn");int oldVersion=target.tokenVersion;
+  yc14Save(yc14Token("manager"),"users",yc14UserBody(target,roles,true)).andExpect(status().isBadRequest());
+  assertThat(target.roles).isEqualTo("STAFF");assertThat(target.tokenVersion).isEqualTo(oldVersion);
+ }
+ @ParameterizedTest @ValueSource(strings={"ROOT","ADMIN,","ADMIN,,STAFF","","ADMIN,ROOT"})
+ void yc14AdminRejectsInvalidRoleList(String roles)throws Exception{
+  Account target=yc14Account("STAFF");int oldVersion=target.tokenVersion;
+  yc14Save(yc14Token("admin"),"users",yc14UserBody(target,roles,true)).andExpect(status().isBadRequest());
+  assertThat(target.roles).isEqualTo("STAFF");assertThat(target.tokenVersion).isEqualTo(oldVersion);
+ }
+ @Test void yc14AdminCanManageMixedRoleAccountAndSystemSettings()throws Exception{
+  Account target=yc14Account("ADMIN,STAFF");String admin=yc14Token("admin");
+  yc14Save(admin,"users",yc14UserBody(target,"ADMIN,SHIPPER",true)).andExpect(status().isOk());
+  assertThat(target.roles).isEqualTo("ADMIN,SHIPPER");
+  yc14Save(admin,"settings",Map.of("name","yc14-matrix","settingValue","enabled"))
+   .andExpect(status().isOk());
+ }
+ @Test void yc14AdminCannotSelfLockOrRemoveAdminRole()throws Exception{
+  Account admin=s.byEmail("admin@uteb.vn");String token=yc14Token("admin");int oldVersion=admin.tokenVersion;
+  yc14Save(token,"users",yc14UserBody(admin,"ADMIN",false)).andExpect(status().isBadRequest());
+  yc14Save(token,"users",yc14UserBody(admin,"CUSTOMER",true)).andExpect(status().isBadRequest());
+  assertThat(admin.active).isTrue();assertThat(admin.roles).isEqualTo("ADMIN");
+  assertThat(admin.tokenVersion).isEqualTo(oldVersion);
+ }
+ @Test void yc14MixedRoleActorsKeepTheirFullAuthorities()throws Exception{
+  Account adminStaff=yc14Account("ADMIN,STAFF");
+  Account managerShipper=yc14Account("MANAGER,SHIPPER");
+  String adminToken=loginToken(passwordApiLogin(adminStaff.email,"Original@123"));
+  yc14Get(adminToken,"audit").andExpect(status().isOk());
+  String managerToken=loginToken(passwordApiLogin(managerShipper.email,"Original@123"));
+  yc14Get(managerToken,"users").andExpect(status().isOk());
+  yc14Get(managerToken,"settings").andExpect(status().isForbidden());
+ }
  Product custom(Long store){return s.all(Product.class).stream().filter(p->p.storeId.equals(store)&&p.customizable).findFirst().orElseThrow();}
  String ingredients(){return List.of("PROTEIN","RICE","BEANS","SAUCE").stream().map(g->s.all(Ingredient.class).stream().filter(i->i.groupName.equals(g)&&i.price.signum()==0).findFirst().orElseThrow().id.toString()).collect(java.util.stream.Collectors.joining(","));}
  Map<String,Object> checkout(String key,String type){return new HashMap<>(Map.of("checkoutKey",key,"type",type,"contactName","Test Customer","phone","0901234567","address","25 Võ Văn Ngân, Thủ Đức","paymentMethod","COD","scheduledAt","ASAP"));}
