@@ -557,6 +557,198 @@ class CommerceTest {
   mvc.perform(get("/shop-api/account").session(session)).andExpect(status().isOk())
    .andExpect(jsonPath("$.user.email").value(a.email));
  }
+ String yc13Token(Account account)throws Exception{return loginToken(passwordApiLogin(account.email,"Original@123"));}
+ ResultActions yc13Profile(String token,Map<String,Object> body)throws Exception{
+  SecurityContextHolder.clearContext();
+  return mvc.perform(put("/api/account/profile").header("Authorization","Bearer "+token)
+   .contentType("application/json").content(json.writeValueAsString(body)));
+ }
+ Map<String,Object> yc13AddressBody(String label,String detail,boolean selected){
+  return new HashMap<>(Map.of("label",label,"recipient","Người nhận","phone","0901234567",
+   "detail",detail,"defaultAddress",selected));
+ }
+ ResultActions yc13AddressRequest(String token,Map<String,Object> body)throws Exception{
+  SecurityContextHolder.clearContext();
+  return mvc.perform(post("/api/addresses").header("Authorization","Bearer "+token)
+   .contentType("application/json").content(json.writeValueAsString(body)));
+ }
+ Address yc13Address(String token,String label,String detail,boolean selected)throws Exception{
+  MvcResult result=yc13AddressRequest(token,yc13AddressBody(label,detail,selected))
+   .andExpect(status().isOk()).andReturn();
+  return s.get(Address.class,json.readTree(result.getResponse().getContentAsByteArray()).get("id").asLong());
+ }
+ @Test void yc13ProfileUpdatesOwnNameOnly()throws Exception{
+  Account a=passwordAccount(),b=passwordAccount();String oldEmail=a.email,otherName=b.name;
+  yc13Profile(yc13Token(a),Map.of("name","Tên hồ sơ mới","phone",a.phone))
+   .andExpect(status().isOk()).andExpect(jsonPath("$.name").value("Tên hồ sơ mới"));
+  assertThat(s.byEmail(oldEmail).name).isEqualTo("Tên hồ sơ mới");
+  assertThat(s.byEmail(b.email).name).isEqualTo(otherName);
+ }
+ @Test void yc13ProfileUpdatesOwnPhoneOnly()throws Exception{
+  Account a=passwordAccount(),b=passwordAccount();String otherPhone=b.phone;
+  yc13Profile(yc13Token(a),Map.of("name",a.name,"phone","0987654321"))
+   .andExpect(status().isOk()).andExpect(jsonPath("$.phone").value("0987654321"));
+  assertThat(s.byEmail(a.email).phone).isEqualTo("0987654321");
+  assertThat(s.byEmail(b.email).phone).isEqualTo(otherPhone);
+ }
+ @Test void yc13ProfileIgnoresForgedAccountFields()throws Exception{
+  Account a=passwordAccount(),b=passwordAccount();String otherName=b.name,otherPhone=b.phone;
+  Map<String,Object> body=new HashMap<>(Map.of("name","Chỉ đổi tên A","phone","0901234567"));
+  body.put("id",b.id);body.put("email",b.email);body.put("roles","ADMIN");
+  yc13Profile(yc13Token(a),body).andExpect(status().isOk());
+  assertThat(s.byEmail(a.email).name).isEqualTo("Chỉ đổi tên A");
+  assertThat(s.byEmail(a.email).roles).isEqualTo("CUSTOMER");
+  assertThat(s.byEmail(b.email).name).isEqualTo(otherName);
+  assertThat(s.byEmail(b.email).phone).isEqualTo(otherPhone);
+ }
+ static java.util.stream.Stream<Arguments> yc13InvalidProfiles(){return java.util.stream.Stream.of(
+  Arguments.of("name"," ","Tên không hợp lệ."),
+  Arguments.of("name","a".repeat(101),"Tên không hợp lệ."),
+  Arguments.of("name",null,"Tên không hợp lệ."),
+  Arguments.of("phone","bad-phone","Số điện thoại không hợp lệ."),
+  Arguments.of("phone","123","Số điện thoại không hợp lệ."));}
+ @ParameterizedTest @MethodSource("yc13InvalidProfiles")
+ void yc13ProfileRejectsInvalidDataWithoutChangingOwner(String field,String value,String message)throws Exception{
+  Account a=passwordAccount();String oldName=a.name,oldPhone=a.phone;
+  Map<String,Object> body=new HashMap<>(Map.of("name","Tên hợp lệ","phone","0901234567"));
+  if(value==null)body.remove(field);else body.put(field,value);
+  yc13Profile(yc13Token(a),body).andExpect(status().isBadRequest())
+   .andExpect(jsonPath("$.message").value(message));
+  assertThat(s.byEmail(a.email).name).isEqualTo(oldName);
+  assertThat(s.byEmail(a.email).phone).isEqualTo(oldPhone);
+ }
+ @Test void yc13MultipleAddressesAreVisibleOnlyToTheirOwner()throws Exception{
+  Account a=passwordAccount(),b=passwordAccount();String tokenA=yc13Token(a),tokenB=yc13Token(b);
+  Address a1=yc13Address(tokenA,"Nhà A","11 Đường số Một, Thủ Đức",false);
+  Address a2=yc13Address(tokenA,"Công ty A","22 Đường số Hai, Thủ Đức",false);
+  Address b1=yc13Address(tokenB,"Nhà B","33 Đường số Ba, Thủ Đức",false);
+  Address b2=yc13Address(tokenB,"Công ty B","44 Đường số Bốn, Thủ Đức",false);
+  SecurityContextHolder.clearContext();
+  var visibleA=json.readTree(mvc.perform(get("/api/account").header("Authorization","Bearer "+tokenA))
+   .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray()).get("addresses");
+  assertThat(visibleA.size()).isEqualTo(2);
+  assertThat(visibleA.findValuesAsText("id")).containsExactlyInAnyOrder(a1.id.toString(),a2.id.toString());
+  SecurityContextHolder.clearContext();
+  var visibleB=json.readTree(mvc.perform(get("/api/account").header("Authorization","Bearer "+tokenB))
+   .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray()).get("addresses");
+  assertThat(visibleB.size()).isEqualTo(2);
+  assertThat(visibleB.findValuesAsText("id")).containsExactlyInAnyOrder(b1.id.toString(),b2.id.toString());
+ }
+ @Test void yc13OwnAddressCanBeEditedAndDefaultMovesWithinOneAccount()throws Exception{
+  Account a=passwordAccount(),b=passwordAccount();String tokenA=yc13Token(a),tokenB=yc13Token(b);
+  Address a1=yc13Address(tokenA,"Nhà A","11 Đường số Một, Thủ Đức",true);
+  Address a2=yc13Address(tokenA,"Công ty A","22 Đường số Hai, Thủ Đức",false);
+  Address b1=yc13Address(tokenB,"Nhà B","33 Đường số Ba, Thủ Đức",true);
+  yc13Address(tokenB,"Công ty B","44 Đường số Bốn, Thủ Đức",false);
+  Map<String,Object> edit=yc13AddressBody("Công ty A mới","25 Đường số Hai, Thủ Đức",true);
+  edit.put("id",a2.id);
+  yc13AddressRequest(tokenA,edit).andExpect(status().isOk())
+   .andExpect(jsonPath("$.defaultAddress").value(true));
+  assertThat(s.get(Address.class,a2.id).detail).isEqualTo("25 Đường số Hai, Thủ Đức");
+  assertThat(s.get(Address.class,a1.id).defaultAddress).isFalse();
+  assertThat(s.get(Address.class,a2.id).defaultAddress).isTrue();
+  assertThat(s.get(Address.class,b1.id).defaultAddress).isTrue();
+  edit=yc13AddressBody("Nhà A","11 Đường số Một, Thủ Đức",true);edit.put("id",a1.id);
+  yc13AddressRequest(tokenA,edit).andExpect(status().isOk());
+  assertThat(s.where(Address.class,"userId",a.id).stream().filter(x->x.defaultAddress)).extracting(x->x.id)
+   .containsExactly(a1.id);
+  assertThat(s.get(Address.class,b1.id).defaultAddress).isTrue();
+ }
+ @Test void yc13ForeignAddressCannotBeEditedMadeDefaultOrDeleted()throws Exception{
+  Account a=passwordAccount(),b=passwordAccount();String tokenA=yc13Token(a),tokenB=yc13Token(b);
+  Address a1=yc13Address(tokenA,"Nhà A","11 Đường số Một, Thủ Đức",true);
+  Address b1=yc13Address(tokenB,"Nhà B","33 Đường số Ba, Thủ Đức",true);
+  Address b2=yc13Address(tokenB,"Công ty B","44 Đường số Bốn, Thủ Đức",false);
+  String original=b2.detail;
+  Map<String,Object> edit=yc13AddressBody("Trộm địa chỉ","55 Đường khác, Thủ Đức",true);
+  edit.put("id",b2.id);
+  yc13AddressRequest(tokenA,edit).andExpect(status().isForbidden());
+  SecurityContextHolder.clearContext();
+  mvc.perform(delete("/api/addresses/"+b2.id).header("Authorization","Bearer "+tokenA))
+   .andExpect(status().isForbidden());
+  assertThat(s.get(Address.class,b2.id).detail).isEqualTo(original);
+  assertThat(s.get(Address.class,b2.id).defaultAddress).isFalse();
+  assertThat(s.get(Address.class,b1.id).defaultAddress).isTrue();
+  assertThat(s.get(Address.class,a1.id).defaultAddress).isTrue();
+ }
+ @Test void yc13OwnAddressCanBeDeletedWithoutAffectingOtherOwners()throws Exception{
+  Account a=passwordAccount(),b=passwordAccount();String tokenA=yc13Token(a),tokenB=yc13Token(b);
+  Address a1=yc13Address(tokenA,"Nhà A","11 Đường số Một, Thủ Đức",true);
+  Address a2=yc13Address(tokenA,"Công ty A","22 Đường số Hai, Thủ Đức",false);
+  Address b1=yc13Address(tokenB,"Nhà B","33 Đường số Ba, Thủ Đức",true);
+  SecurityContextHolder.clearContext();
+  mvc.perform(delete("/api/addresses/"+a2.id).header("Authorization","Bearer "+tokenA))
+   .andExpect(status().isOk());
+  assertThat(s.where(Address.class,"userId",a.id).stream().map(x->x.id).toList()).containsExactly(a1.id);
+  assertThat(s.where(Address.class,"userId",b.id).stream().map(x->x.id).toList()).containsExactly(b1.id);
+  assertThat(s.get(Address.class,b1.id).defaultAddress).isTrue();
+ }
+ @Test void yc13CheckoutUsesOwnSelectedAddressAndRejectsForeignAddress()throws Exception{
+  Account a=passwordAccount(),b=passwordAccount();String tokenA=yc13Token(a),tokenB=yc13Token(b);
+  Address own=yc13Address(tokenA,"Nhà A","11 Đường số Một, Thủ Đức",true);
+  Address foreign=yc13Address(tokenB,"Nhà B","33 Đường số Ba, Thủ Đức",true);
+  Product product=custom(1L);
+  SecurityContextHolder.clearContext();
+  mvc.perform(post("/api/cart").header("Authorization","Bearer "+tokenA).contentType("application/json")
+   .content(json.writeValueAsString(Map.of("productId",product.id,"quantity",1,"ingredientIds",ingredients()))))
+   .andExpect(status().isOk());
+  Map<String,Object> order=checkout("yc13-foreign-order-01","DELIVERY");
+  order.put("addressId",foreign.id);order.put("address","Địa chỉ phải bị bỏ qua");
+  SecurityContextHolder.clearContext();
+  mvc.perform(post("/api/checkout").header("Authorization","Bearer "+tokenA).contentType("application/json")
+   .content(json.writeValueAsString(order))).andExpect(status().isForbidden());
+  assertThat(s.where(MealOrder.class,"userId",a.id)).isEmpty();
+  order.put("checkoutKey","yc13-own-order-0001");order.put("addressId",own.id);
+  SecurityContextHolder.clearContext();
+  mvc.perform(post("/api/checkout").header("Authorization","Bearer "+tokenA).contentType("application/json")
+   .content(json.writeValueAsString(order))).andExpect(status().isOk())
+   .andExpect(jsonPath("$[0].address").value(own.detail))
+   .andExpect(jsonPath("$[0].userId").value(a.id));
+  assertThat(s.get(Address.class,foreign.id).detail).isEqualTo("33 Đường số Ba, Thủ Đức");
+ }
+ static java.util.stream.Stream<Arguments> yc13InvalidAddresses(){return java.util.stream.Stream.of(
+  Arguments.of("label"," ","Tên gợi nhớ không hợp lệ."),
+  Arguments.of("label",null,"Tên gợi nhớ không hợp lệ."),
+  Arguments.of("recipient","X","Tên người nhận không hợp lệ."),
+  Arguments.of("recipient",null,"Tên người nhận không hợp lệ."),
+  Arguments.of("phone","abc","Số điện thoại không hợp lệ."),
+  Arguments.of("phone",null,"Số điện thoại không hợp lệ."),
+  Arguments.of("detail","ngắn","Địa chỉ cần từ 8 đến 500 ký tự."),
+  Arguments.of("detail",null,"Địa chỉ cần từ 8 đến 500 ký tự."),
+  Arguments.of("defaultAddress","unknown","Địa chỉ mặc định không hợp lệ."));}
+ @ParameterizedTest @MethodSource("yc13InvalidAddresses")
+ void yc13AddressRejectsInvalidDataWithClearError(String field,String value,String message)throws Exception{
+  Account a=passwordAccount();Map<String,Object> body=yc13AddressBody("Nhà","11 Đường số Một, Thủ Đức",false);
+  if(value==null)body.remove(field);else body.put(field,value);
+  yc13AddressRequest(yc13Token(a),body).andExpect(status().isBadRequest())
+   .andExpect(jsonPath("$.message").value(message));
+  assertThat(s.where(Address.class,"userId",a.id)).isEmpty();
+ }
+ @Test void yc13InvalidEditDoesNotChangeAddressOrDefault()throws Exception{
+  Account a=passwordAccount();String token=yc13Token(a);
+  Address first=yc13Address(token,"Nhà","11 Đường số Một, Thủ Đức",true);
+  Address second=yc13Address(token,"Công ty","22 Đường số Hai, Thủ Đức",false);
+  String detail=second.detail;
+  Map<String,Object> edit=yc13AddressBody("Công ty","25 Đường số Hai, Thủ Đức",true);
+  edit.put("id",second.id);edit.put("phone","invalid");
+  yc13AddressRequest(token,edit).andExpect(status().isBadRequest())
+   .andExpect(jsonPath("$.message").value("Số điện thoại không hợp lệ."));
+  assertThat(s.get(Address.class,first.id).defaultAddress).isTrue();
+  assertThat(s.get(Address.class,second.id).defaultAddress).isFalse();
+  assertThat(s.get(Address.class,second.id).detail).isEqualTo(detail);
+ }
+ @Test void yc13ProfileAndAddressRequireAuthentication()throws Exception{
+  SecurityContextHolder.clearContext();
+  mvc.perform(put("/api/account/profile").contentType("application/json")
+   .content(json.writeValueAsString(Map.of("name","Tên mới","phone","0901234567"))))
+   .andExpect(status().isUnauthorized());
+  mvc.perform(post("/api/addresses").contentType("application/json")
+   .content(json.writeValueAsString(yc13AddressBody("Nhà","11 Đường số Một, Thủ Đức",false))))
+   .andExpect(status().isUnauthorized());
+  mvc.perform(post("/api/checkout").contentType("application/json")
+   .content(json.writeValueAsString(checkout("yc13-no-auth-order-01","DELIVERY"))))
+   .andExpect(status().isUnauthorized());
+ }
  Product custom(Long store){return s.all(Product.class).stream().filter(p->p.storeId.equals(store)&&p.customizable).findFirst().orElseThrow();}
  String ingredients(){return List.of("PROTEIN","RICE","BEANS","SAUCE").stream().map(g->s.all(Ingredient.class).stream().filter(i->i.groupName.equals(g)&&i.price.signum()==0).findFirst().orElseThrow().id.toString()).collect(java.util.stream.Collectors.joining(","));}
  Map<String,Object> checkout(String key,String type){return new HashMap<>(Map.of("checkoutKey",key,"type",type,"contactName","Test Customer","phone","0901234567","address","25 Võ Văn Ngân, Thủ Đức","paymentMethod","COD","scheduledAt","ASAP"));}
