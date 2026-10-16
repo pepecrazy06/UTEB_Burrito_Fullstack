@@ -7,7 +7,7 @@ import java.time.*;
 public class Domain {
  @MappedSuperclass public static class Base { @Id @GeneratedValue(strategy=GenerationType.IDENTITY) public Long id; @Version @JsonIgnore public long version; }
  @Entity(name="Account") @Table(name="accounts",uniqueConstraints=@UniqueConstraint(columnNames="email")) public static class Account extends Base {
-  @Column(nullable=false,length=160) public String email; @Column(nullable=false) public String name; public String phone="";
+  @Column(nullable=false,length=160) public String email; @Column(nullable=false) public String name; public String phone=""; public LocalDate birthDate;
   @JsonIgnore public String passwordHash; public String roles="CUSTOMER"; public Long storeId;
   public boolean active=true, verified=false; public int points=0; @JsonIgnore public int tokenVersion=0;
   @JsonIgnore public String otpHash,otpPurpose; @JsonIgnore public LocalDateTime otpExpires,otpSent; @JsonIgnore public int otpAttempts;
