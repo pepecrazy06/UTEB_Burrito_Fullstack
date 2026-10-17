@@ -1,0 +1,216 @@
+.registration-page {
+  background: #fff;
+  padding: 36px 24px 48px;
+  color: #79685f;
+}
+
+.registration-content {
+  width: min(100%, 520px);
+  margin: 0 auto;
+}
+
+.registration-content h1 {
+  margin: 0 0 12px;
+  text-align: center;
+  color: var(--wine-dark);
+  font-size: clamp(27px, 3vw, 32px);
+  font-weight: 700;
+}
+
+.registration-intro {
+  margin: 0 0 28px;
+  text-align: center;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.registration-field {
+  position: relative;
+  margin-bottom: 28px;
+}
+
+.registration-field > label {
+  position: absolute;
+  top: 8px;
+  left: 0;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 400;
+  pointer-events: none;
+  transition: top .15s ease, font-size .15s ease;
+}
+
+.registration-field:has(input:focus) > label,
+.registration-field:has(input:not(:placeholder-shown)) > label {
+  top: -10px;
+  font-size: 12px;
+}
+
+.registration-field input {
+  display: block;
+  width: 100%;
+  height: 44px;
+  padding: 11px 0 5px;
+  border: 0;
+  border-bottom: 1px solid #d9cdc7;
+  border-radius: 0;
+  outline: none;
+  background: transparent;
+  color: #57483f;
+  font-size: 18px;
+}
+
+.registration-field input:focus {
+  border-bottom: 2px solid var(--wine);
+}
+
+.registration-field:has(input:focus) > label {
+  color: var(--wine);
+}
+
+.registration-password-input {
+  position: relative;
+}
+
+.registration-password-input input {
+  padding-right: 52px;
+}
+
+.registration-password-toggle {
+  position: absolute;
+  right: -6px;
+  top: 0;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 7px;
+  border: 0;
+  background: transparent;
+  color: #79685f;
+}
+
+.registration-password-toggle svg {
+  width: 25px;
+  height: 25px;
+}
+
+.registration-eye-slash {
+  display: none;
+}
+
+.registration-password-toggle[aria-pressed="true"] .registration-eye-slash {
+  display: block;
+}
+
+.registration-hint {
+  margin: 10px 0 0;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.registration-password-help p {
+  margin: 0;
+}
+
+.registration-password-rules {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px 22px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 16px;
+}
+
+.registration-password-rules li {
+  border-bottom: 2px solid transparent;
+}
+
+.registration-password-rules .is-met {
+  color: #306b3e;
+  border-bottom-color: currentColor;
+}
+
+.registration-phone-field {
+  margin-bottom: 28px;
+}
+
+.registration-field.registration-birthday-field:has(input) > label {
+  position: static;
+  font-size: 18px;
+}
+
+.registration-birthday-field input {
+  color-scheme: light;
+}
+
+.registration-birthday-field {
+  margin-bottom: 24px;
+}
+
+.registration-error {
+  color: #a02922;
+  font-size: 16px;
+}
+
+.registration-submit {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  font-size: 16px;
+}
+
+.registration-login {
+  margin: 20px 0 0;
+  text-align: center;
+  font-size: 15px;
+}
+
+.registration-login a {
+  color: var(--wine);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.auth-page-logo {
+  display: block;
+  width: 112px;
+  height: 112px;
+  object-fit: contain;
+  margin: 0 auto 14px;
+}
+
+.registration-name-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 24px;
+}
+
+.auth-login-content { max-width: 440px; }
+.auth-login-page { padding-top: 40px; padding-bottom: 56px; }
+.auth-login-page .registration-intro { margin-bottom: 32px; }
+.auth-login-page .registration-password-field { margin-bottom: 12px; }
+.auth-forgot-link { margin-bottom: 24px; text-align: right; font-size: 14px; }
+.auth-forgot-link a { color: var(--wine); }
+.auth-forgot-link a:hover { text-decoration: underline; }
+.auth-demo-accounts { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 18px; font-size: 13px; }
+.auth-demo-accounts summary { color: var(--wine); cursor: pointer; }
+.auth-demo-accounts p { margin: 12px 0; }
+.auth-demo-accounts .btn { padding: 6px 10px; font-size: 12px; }
+
+@media (max-width: 760px) {
+  .registration-page { padding: 28px 24px 36px; }
+  .auth-page-logo { width: 96px; height: 96px; margin-bottom: 12px; }
+  .registration-content h1 { margin-bottom: 10px; }
+  .registration-intro { margin-bottom: 26px; }
+  .registration-desktop-break { display: none; }
+  .registration-password-rules { gap: 6px 18px; }
+  .auth-login-page .registration-intro { margin-bottom: 30px; }
+}
+
+@media (max-width: 480px) {
+  .registration-name-grid { grid-template-columns: 1fr; }
+}
