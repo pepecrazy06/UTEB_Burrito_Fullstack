@@ -1235,3 +1235,5 @@ footer a:hover { color: var(--wine); text-decoration: underline; }
   .product-card h3, .featured-grid .product-card h3 { font-size: 17px; }
   .product-grid { column-gap: 16px; }
 }
+.cart-issue { color: #a12620; font-size: .9rem; margin: .6rem 0; }
+.cart-item-unavailable { border-left: 3px solid #a12620; padding-left: .8rem; }

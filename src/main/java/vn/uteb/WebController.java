@@ -57,6 +57,7 @@ public class WebController {
  @PostMapping("/shops/apply")ShopApplication apply(@RequestBody Map<String,Object>b){return s.shopApplication(b);}
  @PutMapping("/shops/applications/{id}")void approve(@PathVariable long id,@RequestBody Map<String,Object>b){s.approveShop(id,b);}
  @GetMapping("/admin/dashboard")Map<String,Object>dashboard(){return s.dashboard();}
+ @GetMapping("/admin/shippers")List<?>shippers(@RequestParam(required=false)Long orderId){return s.shippers(orderId);}
  @GetMapping("/admin/{resource}")List<?>adminList(@PathVariable String resource){return s.adminList(resource);}
  @PostMapping("/admin/{resource}")Object adminSave(@PathVariable String resource,@RequestBody Map<String,Object>b){return s.adminSave(resource,b);}
  @DeleteMapping("/admin/{resource}/{id}")void adminDelete(@PathVariable String resource,@PathVariable long id){s.adminDelete(resource,id);}
