@@ -31,6 +31,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static vn.uteb.Domain.*;
 
 @SpringBootTest(properties={"spring.datasource.url=jdbc:h2:mem:utebtest;MODE=MSSQLServer;DB_CLOSE_DELAY=-1","spring.jpa.hibernate.ddl-auto=create-drop","uteb.vnpay.secret=test-signing-secret-only","uteb.mail.enabled=true"})
+@org.springframework.test.context.ActiveProfiles("demo")
 @AutoConfigureMockMvc @Transactional
 class CommerceTest {
  @Autowired ShopService s;@Autowired MockMvc mvc;@Autowired ObjectMapper json;@Autowired Payments payments;

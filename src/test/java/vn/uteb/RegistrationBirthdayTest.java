@@ -26,6 +26,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest(properties={"spring.datasource.url=jdbc:h2:mem:registrationbirthtest;MODE=MSSQLServer;DB_CLOSE_DELAY=-1", "spring.jpa.hibernate.ddl-auto=create-drop", "uteb.mail.enabled=true"})
 @AutoConfigureMockMvc
+@org.springframework.test.context.ActiveProfiles("demo")
 @Transactional
 class RegistrationBirthdayTest {
     @Autowired MockMvc mvc;
