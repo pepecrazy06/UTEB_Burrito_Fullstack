@@ -411,7 +411,7 @@ class CommerceTest {
   Account a=otpTransaction(()->{Account created=otpAccount("VERIFY");created.otpAttempts=3;registrationEm.flush();registrationEm.refresh(created);return created;});
   try{
    doThrow(new org.springframework.mail.MailSendException("SMTP test failure")).when(registrationMail).send(any(SimpleMailMessage.class));
-   otpSend(Map.of("email",a.email,"purpose","RESET")).andExpect(status().isInternalServerError());
+   otpSend(Map.of("email",a.email,"purpose","RESET")).andExpect(status().isServiceUnavailable());
    Account after=otpTransaction(()->s.byEmail(a.email));
    assertThat(after.otpHash).isEqualTo(a.otpHash);assertThat(after.otpPurpose).isEqualTo(a.otpPurpose);
    assertThat(after.otpSent).isEqualTo(a.otpSent);assertThat(after.otpExpires).isEqualTo(a.otpExpires);
@@ -909,4 +909,91 @@ class CommerceTest {
  @Test @WithMockUser(username="customer@uteb.vn")void verifiedIpnAndRepeatedCallback(){Product p=custom(1L);s.cart(Map.of("productId",p.id,"quantity",1,"ingredientIds",ingredients()));Map<String,Object>b=checkout("ipn-test-order-0001","PICKUP");b.put("paymentMethod","VNPAY");MealOrder o=s.checkout(b).getFirst();Map<String,String>ipn=new TreeMap<>(Map.of("vnp_TxnRef",o.id.toString(),"vnp_Amount",o.total.multiply(new BigDecimal("100")).toPlainString(),"vnp_TransactionNo","TEST-REF-001","vnp_ResponseCode","00","vnp_TransactionStatus","00"));ipn.put("vnp_SecureHash",Payments.sign("HmacSHA512","test-signing-secret-only",Payments.vnRaw(ipn)));assertThat(payments.vnIpn(ipn)).containsEntry("RspCode","00");assertThat(o.paymentStatus).isEqualTo("PAID");assertThat(payments.vnIpn(ipn)).containsEntry("RspCode","02");}
  @Test @WithMockUser(username="customer@uteb.vn")void groupLocksAndTransfersOnce(){GroupMeal g=s.createGroup(Map.of("storeId",1,"title","Test group"));Product p=custom(1L);s.groupAdd(g.code,Map.of("productId",p.id,"quantity",1,"ingredientIds",ingredients()));s.groupToCart(g.code);assertThat(g.status).isEqualTo("LOCKED");assertThat(s.where(CartLine.class,"userId",s.me().id)).hasSize(1);assertThatThrownBy(()->s.groupToCart(g.code)).hasMessageContaining("chuyển vào giỏ");}
  @Test void sessionLoginAndJwt()throws Exception{MvcResult r=mvc.perform(post("/shop-api/auth/login").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email","customer@uteb.vn","password","Uteb@12345")))).andExpect(status().isOk()).andExpect(jsonPath("$.user.passwordHash").doesNotExist()).andReturn();String token=json.readTree(r.getResponse().getContentAsString()).get("token").asText();org.springframework.security.core.context.SecurityContextHolder.clearContext();mvc.perform(get("/api/account").header("Authorization","Bearer "+token)).andExpect(status().isOk());org.springframework.security.core.context.SecurityContextHolder.clearContext();mvc.perform(get("/api/account").header("Authorization","Bearer "+token+"x")).andExpect(status().isUnauthorized());}
+
+ @ParameterizedTest @ValueSource(strings={"INGREDIENT","DELETED_INGREDIENT","PRODUCT","DELETED_PRODUCT","MOVED_PRODUCT","STORE","STOCK"})
+ @WithMockUser(username="customer@uteb.vn")
+ void invalidCartLineRemainsVisibleAndCheckoutStaysBlocked(String problem)throws Exception{
+  Product p=custom(1L);String ids=ingredients();
+  CartLine bad=s.cart(Map.of("productId",p.id,"quantity",1,"ingredientIds",ids));
+  Product fixed=s.all(Product.class).stream().filter(x->!x.customizable&&x.storeId.equals(2L)).findFirst().orElseThrow();
+  CartLine good=s.cart(Map.of("productId",fixed.id,"quantity",1,"ingredientIds",""));
+  Ingredient ingredient=s.get(Ingredient.class,Long.parseLong(ids.split(",")[0]));
+  switch(problem){
+   case "INGREDIENT"->ingredient.available=false;
+   case "DELETED_INGREDIENT"->registrationEm.remove(ingredient);
+   case "PRODUCT"->p.available=false;
+   case "MOVED_PRODUCT"->p.storeId=2L;
+   case "DELETED_PRODUCT"->registrationEm.remove(p);
+   case "STORE"->s.get(Store.class,1L).active=false;
+   case "STOCK"->p.stock=0;
+  }
+  mvc.perform(get("/shop-api/cart")).andExpect(status().isOk())
+   .andExpect(jsonPath("$.length()").value(2));
+  reviewActor("customer@uteb.vn");
+  Map<String,Object> row=s.cartView().stream().filter(r->((CartLine)r.get("line")).id.equals(bad.id)).findFirst().orElseThrow();
+  assertThat(row.get("available")).isEqualTo(false);assertThat((List<?>)row.get("issues")).isNotEmpty();
+  assertThat(s.cartView().stream().filter(r->((CartLine)r.get("line")).id.equals(good.id)).findFirst().orElseThrow().get("available")).isEqualTo(true);
+  assertThatThrownBy(()->s.preview(checkout("invalid-cart-review-0001","PICKUP"))).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+  s.deleteCart(bad.id);assertThat(s.cartView()).hasSize(1);assertThat(s.preview(checkout("valid-cart-review-0001","PICKUP")).get("total")).isNotNull();
+ }
+ @Test @WithMockUser(username="customer@uteb.vn")
+ void unavailableIngredientCanBeReplacedWithoutLosingCartNote(){
+  Product p=custom(1L);String ids=ingredients();CartLine line=s.cart(Map.of("productId",p.id,"quantity",2,"ingredientIds",ids,"note","Không cay"));
+  Ingredient old=s.get(Ingredient.class,Long.parseLong(ids.split(",")[0]));old.available=false;
+  Ingredient replacement=s.all(Ingredient.class).stream().filter(i->i.available&&i.groupName.equals(old.groupName)).findFirst().orElseThrow();
+  s.cart(Map.of("id",line.id,"productId",p.id,"quantity",2,"ingredientIds",ids.replaceFirst(old.id.toString(),replacement.id.toString()),"note",line.note));
+  assertThat(s.cartView()).hasSize(1);assertThat(s.cartView().getFirst().get("available")).isEqualTo(true);assertThat(line.note).isEqualTo("Không cay");
+ }
+ @Test @WithMockUser(username="customer@uteb.vn")
+ void cartChecksCumulativeProductStockAcrossCustomizations(){
+  Product p=custom(1L);String ids=ingredients();s.cart(Map.of("productId",p.id,"quantity",2,"ingredientIds",ids));s.cart(Map.of("productId",p.id,"quantity",2,"ingredientIds",ids));p.stock=3;
+  assertThat(s.cartView()).allMatch(r->Boolean.FALSE.equals(r.get("available")));
+  assertThatThrownBy(()->s.preview(checkout("combined-stock-review-0001","PICKUP"))).hasMessageContaining("tồn kho");
+ }
+ MealOrder assignmentOrder(){return s.all(MealOrder.class).stream().filter(o->o.storeId.equals(1L)&&o.type.equals("DELIVERY")&&o.status.equals("NEW")).findFirst().orElseThrow();}
+ @ParameterizedTest @ValueSource(strings={"PICKUP","DELIVERING","COMPLETED","CANCELLED"})
+ @WithMockUser(username="manager@uteb.vn")
+ void assignmentRejectsWrongTypeAndClosedOrStartedOrders(String state)throws Exception{
+  MealOrder o=assignmentOrder();if(state.equals("PICKUP"))o.type=state;else o.status=state;
+  int events=s.where(OrderEvent.class,"orderId",o.id).size();Long old=o.shipperId;
+  mvc.perform(put("/shop-api/orders/"+o.id+"/shipper").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("shipperId",s.byEmail("shipper@uteb.vn").id)))).andExpect(status().isBadRequest());
+  assertThat(o.shipperId).isEqualTo(old);assertThat(s.where(OrderEvent.class,"orderId",o.id)).hasSize(events);
+  mvc.perform(get("/shop-api/admin/shippers").param("orderId",o.id.toString())).andExpect(status().isBadRequest());
+ }
+ @ParameterizedTest @ValueSource(strings={"FOREIGN_BRANCH","INACTIVE","UNVERIFIED","ROLE","NO_BRANCH"})
+ @WithMockUser(username="admin@uteb.vn")
+ void assignmentRejectsIneligibleShippersEvenForAdmin(String reason)throws Exception{
+  MealOrder o=assignmentOrder();Account shipper=s.byEmail("shipper@uteb.vn");
+  switch(reason){case "FOREIGN_BRANCH"->shipper.storeId=2L;case "INACTIVE"->shipper.active=false;case "UNVERIFIED"->shipper.verified=false;case "ROLE"->shipper.roles="CUSTOMER";case "NO_BRANCH"->shipper.storeId=null;}
+  mvc.perform(get("/shop-api/admin/shippers").param("orderId",o.id.toString())).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+  mvc.perform(put("/shop-api/orders/"+o.id+"/shipper").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("shipperId",shipper.id)))).andExpect(status().isBadRequest());assertThat(o.shipperId).isNull();
+ }
+ @ParameterizedTest @ValueSource(strings={"NEW","CONFIRMED","PREPARING","READY"})
+ @WithMockUser(username="manager@uteb.vn")
+ void managerCanAssignEligibleShipperAndRepeatIsIdempotent(String state)throws Exception{
+  MealOrder o=assignmentOrder();o.status=state;Account shipper=s.byEmail("shipper@uteb.vn");
+  mvc.perform(get("/shop-api/admin/shippers").param("orderId",o.id.toString())).andExpect(status().isOk()).andExpect(jsonPath("$[0].id").value(shipper.id.intValue()));
+  reviewActor("manager@uteb.vn");
+  int events=s.where(OrderEvent.class,"orderId",o.id).size();s.assign(o.id,shipper.id);s.assign(o.id,shipper.id);
+  assertThat(o.shipperId).isEqualTo(shipper.id);assertThat(s.where(OrderEvent.class,"orderId",o.id)).hasSize(events+1);
+ }
+ @Test @WithMockUser(username="vendor2@uteb.vn") void foreignBranchCannotInspectOrAssignOrderShippers()throws Exception{
+  MealOrder o=assignmentOrder();mvc.perform(get("/shop-api/admin/shippers").param("orderId",o.id.toString())).andExpect(status().isForbidden());
+  mvc.perform(put("/shop-api/orders/"+o.id+"/shipper").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("shipperId",s.byEmail("shipper@uteb.vn").id)))).andExpect(status().isForbidden());
+  reviewActor("vendor2@uteb.vn");assertThat(s.shippers(null)).isEmpty();
+ }
+ @Test @WithMockUser(username="customer@uteb.vn") void customerCannotListEligibleShippers()throws Exception{
+  mvc.perform(get("/shop-api/admin/shippers").param("orderId",assignmentOrder().id.toString())).andExpect(status().isForbidden());
+ }
+ void reviewActor(String email){SecurityContextHolder.getContext().setAuthentication(new org.springframework.security.authentication.TestingAuthenticationToken(email,"","ROLE_USER"));}
+ @Test @Transactional(propagation=org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
+ void registrationSmtpFailureLeavesNoAccountAndCanBeRetried()throws Exception{
+  Map<String,Object> body=registration();body.put("email","smtp-rollback-"+UUID.randomUUID()+"@example.com");
+  doThrow(new org.springframework.mail.MailAuthenticationException("private-test-password-must-not-appear")).when(registrationMail).send(any(SimpleMailMessage.class));
+  registerRequest(body).andExpect(status().isServiceUnavailable()).andExpect(jsonPath("$.message").value("Chưa gửi được email. Vui lòng thử lại sau hoặc liên hệ cửa hàng."));
+  assertThat(otpTransaction(()->s.byEmail(body.get("email").toString()))).isNull();
+  reset(registrationMail);
+  try{registerRequest(body).andExpect(status().isOk());assertThat(otpTransaction(()->s.byEmail(body.get("email").toString()))).isNotNull();}
+  finally{otpTransaction(()->{Account a=s.byEmail(body.get("email").toString());if(a!=null)registrationEm.remove(a);return null;});}
+ }
 }

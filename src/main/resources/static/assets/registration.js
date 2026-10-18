@@ -56,6 +56,7 @@ function registrationPage() {
         <p id="register-error" class="registration-error" role="alert" hidden></p>
         <button type="submit" class="btn btn-primary registration-submit">Tạo tài khoản</button>
         <p class="registration-login">Đã có tài khoản? <a href="#login">Đăng nhập</a></p>
+        <p class="registration-login"><a href="#verify">Đã đăng ký nhưng chưa xác thực email?</a></p>
       </form>
     </div>
   </section>`;
@@ -85,6 +86,7 @@ function loginPage() {
         <p id="login-error" class="registration-error" role="alert" hidden></p>
         <button type="submit" class="btn btn-primary registration-submit">Đăng nhập</button>
         <p class="registration-login">Chưa có tài khoản? <a href="#register">Tạo tài khoản</a></p>
+        <p class="registration-login"><a href="#verify">Xác thực lại email đăng ký</a></p>
       </form>
       ${state.data.demo ? `<details class="auth-demo-accounts"><summary>Tài khoản dùng thử</summary><p>Mật khẩu: <strong>Uteb@12345</strong></p><div class="inline-actions">${['customer','staff','manager','admin','vendor','shipper'].map(role => `<button type="button" class="btn btn-sm btn-outline-primary" data-action="demo-login" data-value="${role}">${role}</button>`).join('')}</div></details>` : ''}
     </div>
@@ -92,6 +94,7 @@ function loginPage() {
 }
 
 async function submitLogin(form, body) {
+  state.registrationEmail = body.email.trim();
   const error = form.querySelector('#login-error');
   error.hidden = true;
   try {
@@ -133,9 +136,11 @@ async function submitRegistration(form, body) {
   const error = form.querySelector('#register-error');
   error.hidden = true;
   const payload = {name: `${body.lastName.trim()} ${body.firstName.trim()}`.replace(/\s+/g, ' '), email: body.email.trim(), phone: body.phone.trim(), password: body.password, birthDate: body.birthDate};
+  state.registrationEmail = payload.email;
   try {
     await api('/auth/register', 'POST', payload);
     state.registrationEmail = payload.email;
+    rememberOtpSent('VERIFY', payload.email);
     toast('Đã gửi mã OTP. Vui lòng xác thực tài khoản.');
     location.hash = '#verify';
   } catch (err) {
@@ -149,6 +154,74 @@ async function submitRegistration(form, body) {
 document.addEventListener('input', event => {
   const form = event.target.closest('#register-form');
   if (form) updateRegistrationValidity(form);
+});
+
+function otpPage(mode) {
+  const reset = mode === 'forgot', title = reset ? 'Đặt lại mật khẩu' : 'Xác thực tài khoản';
+  return `<section class="registration-page auth-login-page" aria-labelledby="otp-title"><div class="registration-content auth-login-content">
+    <img class="auth-page-logo" src="/assets/uteb-logo.png" alt="Logo UTEB" width="112" height="112">
+    <h1 id="otp-title">${title}</h1><p class="registration-intro">Nhập email ${reset ? 'đã đăng ký để nhận mã đặt lại mật khẩu' : 'đăng ký để nhận mã xác thực'}.</p>
+    <form id="otp-request-form" class="registration-form"><input type="hidden" name="purpose" value="${reset ? 'RESET' : 'VERIFY'}">
+      <div class="registration-field"><label for="otp-email">E-mail</label><input id="otp-email" type="email" name="email" value="${esc(state.registrationEmail || '')}" autocomplete="email" maxlength="160" required></div>
+      <button type="submit" class="btn btn-outline-primary w-100" id="otp-send">Gửi mã OTP</button>
+      <p class="registration-error" role="alert" hidden></p>
+    </form>
+    <p id="otp-message" class="registration-hint mt-3" role="status">Mã gồm 6 chữ số, có hiệu lực 5 phút. Mỗi lần gửi cách nhau ít nhất 60 giây.</p>
+    <form id="otp-form" class="registration-form mt-4"><input type="hidden" name="purpose" value="${reset ? 'RESET' : 'VERIFY'}">
+      <div class="registration-field"><label for="otp-code">Mã OTP</label><input id="otp-code" name="otp" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required></div>
+      ${reset ? '<div class="registration-field"><label for="otp-password">Mật khẩu mới</label><input id="otp-password" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="72" required><p class="registration-hint">Ít nhất 8 ký tự, tối đa 72 byte UTF-8.</p></div>' : ''}
+      <p class="registration-error" role="alert" hidden></p><button type="submit" class="btn btn-primary registration-submit">${reset ? 'Đặt lại mật khẩu' : 'Xác thực'}</button>
+    </form><p class="registration-login"><a href="#login">Quay lại đăng nhập</a></p>
+    ${state.data.demo && !state.data.mailEnabled ? '<p class="demo-note">Chế độ phát triển: đọc OTP trong data/mailbox trên máy chạy ứng dụng.</p>' : ''}
+  </div></section>`;
+}
+
+const otpCooldowns = new Map();
+function otpKey(purpose, email) { return `${purpose}:${email.trim().toLowerCase()}`; }
+function rememberOtpSent(purpose, email) { otpCooldowns.set(otpKey(purpose, email), Date.now() + 60000); }
+function updateOtpSendButton() {
+  const form = document.querySelector('#otp-request-form'), button = document.querySelector('#otp-send');
+  if (!form || !button) return;
+  const seconds = Math.max(0, Math.ceil(((otpCooldowns.get(otpKey(form.elements.purpose.value, form.elements.email.value)) || 0) - Date.now()) / 1000));
+  button.disabled = seconds > 0 || form.dataset.sending === 'true';
+  button.textContent = seconds > 0 ? `Gửi lại sau ${seconds} giây` : 'Gửi mã OTP';
+}
+setInterval(updateOtpSendButton, 1000);
+
+async function submitOtp(form, body) {
+  const request = document.querySelector('#otp-request-form'), error = form.querySelector('.registration-error');
+  error.hidden = true;
+  if (!request.reportValidity()) return;
+  body.email = request.elements.email.value.trim();
+  state.registrationEmail = body.email;
+  if (body.password) {
+    const password = form.elements.password;
+    password.setCustomValidity(new TextEncoder().encode(body.password).length > 72 ? 'Mật khẩu không được vượt quá 72 byte UTF-8.' : body.password !== body.password.trim() ? 'Mật khẩu không được bắt đầu hoặc kết thúc bằng khoảng trắng.' : '');
+    if (!form.reportValidity()) return;
+  }
+  try {
+    const sending = form.getAttribute('id') === 'otp-request-form';
+    if (sending) form.dataset.sending = 'true';
+    const result = await api(sending ? '/auth/otp/request' : '/auth/otp/verify', 'POST', body);
+    if (sending) {
+      rememberOtpSent(body.purpose, body.email);
+      document.querySelector('#otp-message').textContent = result.message + ' Kiểm tra cả thư rác.';
+      document.querySelector('#otp-code').focus();
+    } else {
+      toast(body.purpose === 'RESET' ? 'Đã đổi mật khẩu. Hãy đăng nhập bằng mật khẩu mới.' : result.message);
+      location.hash = '#login';
+    }
+  } catch (err) {
+    error.textContent = err.message; error.hidden = false; throw err;
+  } finally {
+    delete form.dataset.sending;
+    setTimeout(updateOtpSendButton, 0);
+  }
+}
+
+document.addEventListener('input', event => {
+  if (event.target.id === 'otp-email') updateOtpSendButton();
+  if (event.target.id === 'otp-password') event.target.setCustomValidity('');
 });
 
 document.addEventListener('click', event => {
