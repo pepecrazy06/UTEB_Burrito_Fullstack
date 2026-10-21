@@ -32,6 +32,15 @@ public class Domain {
   public BigDecimal subtotal=BigDecimal.ZERO,discount=BigDecimal.ZERO,deliveryFee=BigDecimal.ZERO,total=BigDecimal.ZERO,commissionRate=BigDecimal.ZERO;
   public LocalDateTime createdAt=LocalDateTime.now(),updatedAt=LocalDateTime.now(),paymentExpires; public boolean pointsAwarded=false;
  }
+ @Entity(name="PaymentAttempt") @Table(name="payment_attempts",uniqueConstraints=@UniqueConstraint(columnNames="reference")) public static class PaymentAttempt extends Base {
+  @Column(nullable=false) public Long orderId;
+  @Column(nullable=false,length=64) public String reference;
+  @Column(nullable=false,precision=38,scale=2) public BigDecimal amount;
+  @Column(nullable=false,length=32) public String state="PENDING";
+  public String transactionNo="";
+  @Column(length=2) public String responseCode="",transactionStatus="";
+  @Column(nullable=false) public LocalDateTime createdAt=LocalDateTime.now(),expiresAt;
+ }
  @Entity(name="OrderLine") @Table(name="order_lines") public static class OrderLine extends Base {
   public Long orderId,productId; public String name,image; @Column(length=2000) public String customization; public int quantity,calories; public BigDecimal unitPrice;
  }
