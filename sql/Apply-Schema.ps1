@@ -36,7 +36,7 @@ try {
         if ($collation -notmatch '_UTF8$') {
             throw 'Empty database needs a UTF8 collation before V1 varchar columns are created. Review and approve ALTER DATABASE separately.'
         }
-        $files = @('V1__schema.sql','V2__constraints.sql','V3__catalog_seed.sql','V4__account_birth_date.sql')
+        $files = @('V1__schema.sql','V2__constraints.sql','V3__catalog_seed.sql','V4__account_birth_date.sql','V5__vnpay_payment_attempts.sql')
     } elseif ($historyExists -eq 0) {
         throw 'Existing tables without migration history: stop for a manual schema audit. Never recreate them.'
     } else {
@@ -50,9 +50,10 @@ try {
         if (@(1,2,3 | Where-Object { $_ -notin $versions }).Count -gt 0) {
             throw 'Incomplete V1-V3 history: manual review required; no old scripts will be replayed.'
         }
-        if (4 -notin $versions) { $files = @('V4__account_birth_date.sql') }
+        if (4 -notin $versions) { $files += 'V4__account_birth_date.sql' }
+        if (5 -notin $versions) { $files += 'V5__vnpay_payment_attempts.sql' }
     }
-    if ($files.Count -eq 0) { Write-Output 'No pending V1-V4 migrations.'; return }
+    if ($files.Count -eq 0) { Write-Output 'No pending V1-V5 migrations.'; return }
     Write-Output "Pending: $($files -join ', ')"
     if (!$Apply) { Write-Output 'Plan only. Run with -Apply only after approval.'; return }
     $transaction = $connection.BeginTransaction()
