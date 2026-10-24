@@ -62,6 +62,7 @@ public class WebController {
  @PostMapping("/admin/{resource}")Object adminSave(@PathVariable String resource,@RequestBody Map<String,Object>b){return s.adminSave(resource,b);}
  @DeleteMapping("/admin/{resource}/{id}")void adminDelete(@PathVariable String resource,@PathVariable long id){s.adminDelete(resource,id);}
  @PostMapping(value="/media",consumes=MediaType.MULTIPART_FORM_DATA_VALUE)MediaRecord upload(@RequestParam("file")MultipartFile file)throws Exception{return media.upload(file);}
+ @DeleteMapping("/media/{id}")@ResponseStatus(HttpStatus.NO_CONTENT)void deleteMedia(@PathVariable long id){media.delete(id);}
 }
 @RestController class CallbackController {
  final Payments p;CallbackController(Payments p){this.p=p;}

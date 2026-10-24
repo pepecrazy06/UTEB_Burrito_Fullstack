@@ -36,6 +36,8 @@ public class ShopService {
  void expirePayments(){for(MealOrder o:em.createQuery("from MealOrder where status='NEW' and paymentMethod <> 'COD' and paymentStatus <> 'PAID' and paymentExpires < :now",MealOrder.class).setParameter("now",LocalDateTime.now()).getResultList())expirePaymentOrder(o);}
  void expirePaymentOrder(MealOrder o){em.lock(o,LockModeType.PESSIMISTIC_WRITE);if(!"NEW".equals(o.status)||"PAID".equals(o.paymentStatus)||o.paymentExpires.isAfter(LocalDateTime.now()))return;for(OrderLine l:where(OrderLine.class,"orderId",o.id)){Product p=get(Product.class,l.productId);em.lock(p,LockModeType.PESSIMISTIC_WRITE);p.stock+=l.quantity;}o.status="CANCELLED";o.paymentStatus="REVIEW_REQUIRED".equals(o.paymentStatus)?"REVIEW_REQUIRED":"EXPIRED";event(o,"CANCELLED","Hết thời gian thanh toán, đã trả tồn kho",null);notifyUser(o.userId,o.id,"Đơn "+o.code+" đã hết thời gian thanh toán.");}
  <T> T save(T entity){em.persist(entity);return entity;}
+ void lockMedia(MediaRecord media){em.lock(media,LockModeType.PESSIMISTIC_WRITE);}
+ void removeMedia(MediaRecord media){em.remove(media);}
  <T> T get(Class<T> type,long id){T v=em.find(type,id);if(v==null)throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Không tìm thấy dữ liệu.");return v;}
  <T> List<T> all(Class<T> type){return em.createQuery("from "+type.getAnnotation(Entity.class).name()+" order by id desc",type).getResultList();}
  <T> List<T> where(Class<T> type,String property,Object value){return em.createQuery("from "+type.getAnnotation(Entity.class).name()+" where "+property+"=:v order by id desc",type).setParameter("v",value).getResultList();}
