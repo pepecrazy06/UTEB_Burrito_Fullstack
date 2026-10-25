@@ -125,4 +125,3 @@ Tạo bằng công cụ imagegen built-in, mỗi ảnh một lời nhắc riêng
 | 48 | Nước cam | one clear glass of fresh orange juice with orange slices nearby, subtle condensation |
 
 Các ảnh PNG gốc do imagegen lưu ngoài project đã được chuyển sang JPEG chất lượng 86 để trang tải nhanh; nội dung hình không bị thay đổi khi chuyển định dạng. 28 ảnh `*-full-plate.jpg` là bản chỉnh góc chụp rộng hơn bằng imagegen để nhìn thấy toàn bộ viền đĩa; ảnh cũ vẫn được giữ. Các ảnh JPEG được lưu trong `src/main/resources/static/assets/menu/`.
-
