@@ -246,13 +246,11 @@ nav a:hover {
   transform:translateY(-3px);
   box-shadow:0 10px 25px #482c1510}
 .product-photo {
-  height:178px;
+  display:block;
+  aspect-ratio:4 / 3;
+  height:auto;
   width:100%;
-  object-fit:cover}
-.product-card:nth-child(2n) .product-photo {
-  object-position:70% 35%}
-.product-card:nth-child(3n) .product-photo {
-  object-position:20% 80%}
+  object-fit:contain}
 .product-body {
   padding:18px}
 .product-category {
@@ -905,8 +903,6 @@ nav.open {
 .product-grid {
   grid-template-columns:repeat(2,minmax(0,1fr));
   gap:13px}
-.product-photo {
-  height:140px}
 .product-body {
   padding:14px}
 .product-card h3 {
@@ -1091,12 +1087,11 @@ nav a[aria-current="page"]::after {
 .page-title { margin-bottom: 34px; }
 .product-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px 32px; }
 .featured-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 28px; }
-.featured-grid .product-photo { height: 185px; }
 .featured-grid .product-card h3 { font-size: 21px; }
 .product-card { border: 0; border-radius: 0; }
 .product-card:hover { transform: translateY(-3px); box-shadow: none; }
 .product-card:focus-within { outline: 1px solid var(--line); outline-offset: 8px; }
-.product-photo { height: 215px; border-radius: 3px; }
+.product-photo { border-radius: 3px; }
 .product-body { padding: 20px 2px 8px; }
 .product-card h3 { font-size: 24px; line-height: 1.25; text-transform: uppercase; }
 .product-price { color: var(--wine-dark); }
@@ -1212,7 +1207,6 @@ footer a:hover { color: var(--wine); text-decoration: underline; }
   #store-button { justify-content: flex-start; text-align: left; }
   .section, .page { padding-top: 35px; padding-bottom: 40px; }
   .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 18px; }
-  .product-photo, .featured-grid .product-photo { height: 150px; }
   .product-card h3, .featured-grid .product-card h3 { font-size: 19px; }
   .product-card p { min-height: 0; }
   .product-body { padding-top: 15px; }
@@ -1231,7 +1225,6 @@ footer a:hover { color: var(--wine); text-decoration: underline; }
   .brand small { letter-spacing: 1px; }
   .header-actions { gap: 10px; }
   #account-label { max-width: 60px; }
-  .product-photo, .featured-grid .product-photo { height: 125px; }
   .product-card h3, .featured-grid .product-card h3 { font-size: 17px; }
   .product-grid { column-gap: 16px; }
 }

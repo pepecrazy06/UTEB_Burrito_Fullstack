@@ -72,8 +72,26 @@ public class ShopService {
  Address address(Map<String,Object>b){Account a=me();boolean fresh=str(b,"id").isEmpty();Address d=fresh?new Address():get(Address.class,number(b,"id"));forbidden(fresh||Objects.equals(d.userId,a.id));String label=str(b,"label"),recipient=str(b,"recipient"),phone=str(b,"phone"),detail=str(b,"detail"),defaultValue=str(b,"defaultAddress");require(!label.isEmpty()&&label.length()<=100,"Tên gợi nhớ không hợp lệ.");require(recipient.length()>=2&&recipient.length()<=100,"Tên người nhận không hợp lệ.");require(phone.matches("[+0-9 ()-]{8,20}"),"Số điện thoại không hợp lệ.");require(detail.length()>=8&&detail.length()<=500,"Địa chỉ cần từ 8 đến 500 ký tự.");require(defaultValue.isEmpty()||List.of("true","false").contains(defaultValue),"Địa chỉ mặc định không hợp lệ.");boolean makeDefault=Boolean.parseBoolean(defaultValue);if(makeDefault)where(Address.class,"userId",a.id).stream().filter(x->!Objects.equals(x.id,d.id)).forEach(x->x.defaultAddress=false);d.userId=a.id;d.label=label;d.recipient=recipient;d.phone=phone;d.detail=detail;d.defaultAddress=makeDefault;if(d.id==null)save(d);return d;}
  void deleteAddress(long id){Address d=get(Address.class,id);forbidden(Objects.equals(d.userId,me().id));em.remove(d);}
  record Quote(BigDecimal price,int calories,String description,String ids){}
- Quote quote(Product p,String ids){BigDecimal price=p.price;int kcal=p.calories;List<String>names=new ArrayList<>();Set<Long>unique=new LinkedHashSet<>();Map<String,Integer>counts=new HashMap<>();if(ids!=null&&!ids.isBlank())for(String s:ids.split(",")){long id;try{id=Long.parseLong(s.trim());}catch(Exception e){throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Thành phần không hợp lệ.");}require(unique.add(id),"Thành phần trùng lặp.");Ingredient i=get(Ingredient.class,id);require(i.available,"Thành phần tạm hết: "+i.name);counts.merge(i.groupName,1,Integer::sum);price=price.add(i.price);kcal+=i.calories;names.add(i.name);}
-  if(p.customizable){for(String group:List.of("PROTEIN","RICE","BEANS","SAUCE"))require(counts.getOrDefault(group,0)==1,"Vui lòng chọn đúng một thành phần nhóm "+group+".");}else require(unique.isEmpty(),"Món này không có thành phần tùy chọn.");
+ static List<String> menuRequiredGroups(Product p){return switch(p.category){
+  case "Tacos","Quesadilla"->List.of("PROTEIN","SAUCE");
+  case "Salad"->List.of("PROTEIN","BEANS","SAUCE");
+  case "Kids"->List.of("PROTEIN","RICE","SAUCE");
+  default->List.of("PROTEIN","RICE","BEANS","SAUCE");
+ };}
+ static String includedMenuProtein(Product p){
+  if(p.name.endsWith(" Bò BBQ")||p.name.endsWith(" Bò đặc biệt"))return "Bò BBQ";
+  if(p.name.endsWith(" Heo xé"))return "Heo xé";
+  return "";
+ }
+ Quote quote(Product p,String ids){BigDecimal price=p.price;int kcal=p.calories;List<String>names=new ArrayList<>();Set<Long>unique=new LinkedHashSet<>();Map<String,Integer>counts=new HashMap<>();if(ids!=null&&!ids.isBlank())for(String s:ids.split(",")){long id;try{id=Long.parseLong(s.trim());}catch(Exception e){throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Thành phần không hợp lệ.");}require(unique.add(id),"Thành phần trùng lặp.");Ingredient i=get(Ingredient.class,id);require(i.available,"Thành phần tạm hết: "+i.name);if(p.customizable&&p.name.endsWith(" Chay"))require(!("PROTEIN".equals(i.groupName)&&!"Đậu hũ chay".equals(i.name))&&!"Thêm thịt".equals(i.name),"Món chay không dùng thịt.");counts.merge(i.groupName,1,Integer::sum);price=price.add(i.price);kcal+=p.category.equals("Kids")?(i.calories+1)/2:i.calories;names.add(i.name);}
+  if(p.customizable){
+   List<String>requiredGroups=menuRequiredGroups(p);
+   for(String group:requiredGroups)require(counts.getOrDefault(group,0)==1,"Vui lòng chọn đúng một thành phần nhóm "+group+".");
+   for(String group:List.of("RICE","BEANS"))if(!requiredGroups.contains(group))require(counts.getOrDefault(group,0)<=1,"Chỉ chọn tối đa một thành phần nhóm "+group+".");
+   String includedProtein=includedMenuProtein(p);
+   if(!includedProtein.isEmpty())price=price.subtract(all(Ingredient.class).stream().filter(i->"PROTEIN".equals(i.groupName)&&includedProtein.equals(i.name)).findFirst().map(i->i.price).orElse(BigDecimal.ZERO));
+  }else require(unique.isEmpty(),"Món này không có thành phần tùy chọn.");
+  require(price.signum()>0,"Giá món không hợp lệ.");
   return new Quote(money(price),kcal,String.join(" · ",names),unique.stream().map(Object::toString).collect(Collectors.joining(",")));
  }
  CartLine cart(Map<String,Object>b){Account a=me();CartLine c=str(b,"id").isEmpty()?new CartLine():get(CartLine.class,number(b,"id"));forbidden(c.userId==null||c.userId.equals(a.id));Product p=get(Product.class,number(b,"productId"));require(p.available&&get(Store.class,p.storeId).active,"Món tạm ngừng bán.");int q=(int)number(b,"quantity");require(q>=1&&q<=50&&q<=p.stock,"Số lượng phải từ 1 đến 50 và không vượt tồn kho.");Quote qt=quote(p,str(b,"ingredientIds"));c.userId=a.id;c.productId=p.id;c.storeId=p.storeId;c.quantity=q;c.ingredientIds=qt.ids;c.note=str(b,"note");require(c.note.length()<=300,"Ghi chú tối đa 300 ký tự.");if(c.id==null)save(c);return c;}
