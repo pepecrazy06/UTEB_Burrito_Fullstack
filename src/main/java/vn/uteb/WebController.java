@@ -16,8 +16,8 @@ import static vn.uteb.ShopService.*;
 @Controller class PageController { final Payments payments;PageController(Payments payments){this.payments=payments;} @GetMapping("/payments/vnpay/return")String vnReturn(@RequestParam org.springframework.util.MultiValueMap<String,String> fields){return "redirect:"+payments.vnpayReturn(fields);} @GetMapping("/") String index(){return "index";} @GetMapping("/payments/return")String paymentReturn(){return "redirect:/#orders";} }
 @RestController @RequestMapping({"/shop-api","/api"})
 public class WebController {
- final ShopService s;final JwtService jwt;final Payments payments;final MediaService media;
- WebController(ShopService s,JwtService jwt,Payments payments,MediaService media){this.s=s;this.jwt=jwt;this.payments=payments;this.media=media;}
+ final ShopService s;final JwtService jwt;final Payments payments;final MediaService media;final OrderCancellationService cancellations;
+ WebController(ShopService s,JwtService jwt,Payments payments,MediaService media,OrderCancellationService cancellations){this.s=s;this.jwt=jwt;this.payments=payments;this.media=media;this.cancellations=cancellations;}
  @GetMapping("/public/bootstrap")Map<String,Object> bootstrap(HttpServletRequest req){Map<String,Object>d=s.publicData();d.put("vnpayConfigured",payments.vnpayConfigured());CsrfToken csrf=(CsrfToken)req.getAttribute(CsrfToken.class.getName());if(csrf!=null)d.put("csrf",csrf.getToken());try{d.put("user",s.me());}catch(ResponseStatusException ignored){}return d;}
  @GetMapping("/public/top")List<Map<String,Object>>top(){Map<Long,Integer>counts=new HashMap<>();for(MealOrder o:s.all(MealOrder.class))if(o.status.equals("COMPLETED"))for(OrderLine l:s.where(OrderLine.class,"orderId",o.id))counts.merge(l.productId,l.quantity,Integer::sum);return counts.entrySet().stream().sorted(Map.Entry.<Long,Integer>comparingByValue().reversed()).limit(10).map(e->Map.<String,Object>of("product",s.get(Product.class,e.getKey()),"sold",e.getValue())).toList();}
  @PostMapping("/auth/login")Map<String,Object> login(@RequestBody Map<String,Object>b,HttpServletRequest req,HttpServletResponse res)throws Exception{Account a=s.login(str(b,"email"),str(b,"password"));if(req.getRequestURI().startsWith("/shop-api")){if(req.getSession(false)!=null)req.changeSessionId();SecurityContext ctx=SecurityContextHolder.createEmptyContext();ctx.setAuthentication(SecurityConfig.authentication(a));SecurityContextHolder.setContext(ctx);new HttpSessionSecurityContextRepository().saveContext(ctx,req,res);CookieCsrfTokenRepository csrf=CookieCsrfTokenRepository.withHttpOnlyFalse();csrf.setCookieCustomizer(c->c.sameSite("Lax").path("/"));csrf.saveToken(null,req,res);}return Map.of("user",a,"token",jwt.issue(a),"expiresIn",3600);}
@@ -36,11 +36,16 @@ public class WebController {
  @PostMapping("/checkout/preview")Map<String,Object>preview(@RequestBody Map<String,Object>b){return s.preview(b);}
  @PostMapping("/checkout")List<MealOrder>checkout(@RequestBody Map<String,Object>b){if("VNPAY".equals(str(b,"paymentMethod")))payments.requireVnpay();return s.checkout(b);}
  @GetMapping("/orders")List<MealOrder>orders(){return s.orders();}
- @GetMapping("/orders/{id}")Map<String,Object>order(@PathVariable long id){return s.detail(id);}
+ @GetMapping("/orders/{id}")Map<String,Object>order(@PathVariable long id){Map<String,Object>d=new LinkedHashMap<>(s.detail(id));d.put("cancellation",cancellations.read(id));return d;}
  @PutMapping("/orders/{id}/status")void status(@PathVariable long id,@RequestBody Map<String,Object>b){s.status(id,b);}
  @PutMapping("/orders/{id}/shipper")void assign(@PathVariable long id,@RequestBody Map<String,Object>b){s.assign(id,number(b,"shipperId"));}
  @PostMapping("/orders/{id}/payment")Map<String,Object>pay(@PathVariable long id,HttpServletRequest req)throws Exception{return payments.start(id,req.getRemoteAddr());}
  @PostMapping("/orders/{id}/simulate")void simulate(@PathVariable long id,@RequestBody Map<String,Object>b){s.simulate(id,Boolean.parseBoolean(str(b,"success")));}
+ @PostMapping("/orders/{id}/cancellation")OrderCancellation cancelRequest(@PathVariable long id,@RequestBody Map<String,Object>b){return cancellations.request(id,b);}
+ @GetMapping("/orders/{id}/cancellation")Map<String,Object> cancelState(@PathVariable long id){return cancellations.read(id);}
+ @GetMapping("/admin/cancellations")List<Map<String,Object>> cancelList(@RequestParam(required=false)String status){return cancellations.list(status);}
+ @PutMapping("/cancellations/{id}/decision")OrderCancellation cancelDecision(@PathVariable long id,@RequestBody Map<String,Object>b){return cancellations.decide(id,b);}
+ @PutMapping("/cancellations/{id}/refund")OrderCancellation cancelRefund(@PathVariable long id,@RequestBody Map<String,Object>b){return cancellations.confirmRefund(id,b);}
  @PostMapping("/orders/{id}/refund")RefundRequest refund(@PathVariable long id,@RequestBody Map<String,Object>b){return s.refund(id,b);}
  @PutMapping("/refunds/{id}")void refundDecision(@PathVariable long id,@RequestBody Map<String,Object>b){s.refundDecision(id,b);}
  @PostMapping("/reviews")Review review(@RequestBody Map<String,Object>b){return s.review(b);}
@@ -71,6 +76,6 @@ public class WebController {
 @RestControllerAdvice class Errors {
  @ExceptionHandler(ResponseStatusException.class)ResponseEntity<?>status(ResponseStatusException e){return ResponseEntity.status(e.getStatusCode()).body(Map.of("message",Objects.requireNonNullElse(e.getReason(),"Yêu cầu không hợp lệ.")));}
  @ExceptionHandler({NumberFormatException.class,java.time.format.DateTimeParseException.class,org.springframework.http.converter.HttpMessageNotReadableException.class})ResponseEntity<?>bad(Exception e){return ResponseEntity.badRequest().body(Map.of("message","Dữ liệu nhập không hợp lệ."));}
- @ExceptionHandler({org.springframework.dao.DataIntegrityViolationException.class,jakarta.persistence.PersistenceException.class})ResponseEntity<?>conflict(Exception e){return ResponseEntity.status(409).body(Map.of("message","Dữ liệu đã thay đổi hoặc bị trùng. Tải lại và thử lại."));}
+ @ExceptionHandler({org.springframework.dao.DataIntegrityViolationException.class,jakarta.persistence.PersistenceException.class,org.springframework.dao.OptimisticLockingFailureException.class,org.springframework.dao.PessimisticLockingFailureException.class})ResponseEntity<?>conflict(Exception e){return ResponseEntity.status(409).body(Map.of("message","Dữ liệu đã thay đổi hoặc bị trùng. Tải lại và thử lại."));}
  @ExceptionHandler(Exception.class)ResponseEntity<?>other(Exception e){org.slf4j.LoggerFactory.getLogger(Errors.class).error("Operation failed: {}",e.getClass().getSimpleName());return ResponseEntity.status(500).body(Map.of("message","Không thể hoàn tất thao tác. Kiểm tra cấu hình dịch vụ hoặc thử lại."));}
 }
