@@ -34,6 +34,17 @@ import static vn.uteb.Domain.*;
 @org.springframework.test.context.ActiveProfiles("demo")
 @AutoConfigureMockMvc @Transactional
 class CommerceTest {
+  @Autowired org.springframework.web.context.WebApplicationContext webContext;
+  @BeforeEach void attachMetadataToMockUserSessions(){
+   // @WithMockUser bypasses login; model the same server-side snapshot as a real login.
+   var authentication=SecurityContextHolder.getContext().getAuthentication();
+   if(authentication!=null){Account account=s.byEmail(authentication.getName());if(account!=null){
+    MockHttpSession session=new MockHttpSession();session.setAttribute(SessionSecurityService.ACCOUNT_ID,account.id);session.setAttribute(SessionSecurityService.TOKEN_VERSION,account.tokenVersion);
+    session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,SecurityContextHolder.getContext());
+    mvc=org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppContextSetup(webContext)
+     .apply(org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity()).defaultRequest(get("/").session(session)).build();
+   }}
+  }
  @Autowired ShopService s;@Autowired MockMvc mvc;@Autowired ObjectMapper json;@Autowired Payments payments;
  @MockitoBean JavaMailSender registrationMail;
  @jakarta.persistence.PersistenceContext jakarta.persistence.EntityManager registrationEm;
@@ -173,7 +184,7 @@ class CommerceTest {
  }
  // csrf() in other tests replaces the filter repository; reload the real cookie-based chain here.
  @org.springframework.test.annotation.DirtiesContext(methodMode=org.springframework.test.annotation.DirtiesContext.MethodMode.BEFORE_METHOD)
- @Test void loginLogoutUseBrowserCsrfAndInvalidateOnlyCurrentSession()throws Exception{
+ @Test void loginLogoutUseBrowserCsrfAndRevokeAccountSessions()throws Exception{
   MvcResult bootstrap=mvc.perform(get("/shop-api/public/bootstrap")).andExpect(status().isOk()).andReturn();
   Cookie before=bootstrap.getResponse().getCookie("XSRF-TOKEN");assertThat(before).isNotNull();
   assertThat(json.readTree(bootstrap.getResponse().getContentAsByteArray()).get("csrf").asText()).isEqualTo(before.getValue());
@@ -210,7 +221,7 @@ class CommerceTest {
   mvc.perform(get("/shop-api/account").cookie(new Cookie("JSESSIONID",session.getId()))).andExpect(status().isUnauthorized());
   mvc.perform(get("/api/account").header("Authorization","Bearer "+loginToken(loggedIn))).andExpect(status().isUnauthorized());
   mvc.perform(get("/api/account").header("Authorization","Bearer "+loginToken(secondLogin))).andExpect(status().isUnauthorized());
-  mvc.perform(get("/shop-api/account").session(other)).andExpect(status().isOk());
+  mvc.perform(get("/shop-api/account").session(other)).andExpect(status().isUnauthorized());
   SecurityContextHolder.clearContext();
   MvcResult afterLogout=mvc.perform(get("/shop-api/public/bootstrap")).andExpect(status().isOk()).andReturn();
   assertThat(afterLogout.getResponse().getCookie("XSRF-TOKEN").getValue()).isNotEqualTo(after.getValue());
@@ -547,7 +558,7 @@ class CommerceTest {
   mvc.perform(put("/shop-api/account/password").session(session).with(csrf())
    .contentType("application/json").content(body)).andExpect(status().isOk());
  }
- @Test void passwordChangeKeepsExistingWebSession()throws Exception{
+ @Test void passwordChangeRevokesExistingWebSession()throws Exception{
   Account a=passwordAccount();MvcResult login=passwordWebLogin(a.email,"Original@123");
   MockHttpSession session=(MockHttpSession)login.getRequest().getSession(false);
   SecurityContextHolder.clearContext();
@@ -555,8 +566,7 @@ class CommerceTest {
    .content(json.writeValueAsString(Map.of("currentPassword","Original@123","password","Replacement@123"))))
    .andExpect(status().isOk());
   SecurityContextHolder.clearContext();
-  mvc.perform(get("/shop-api/account").session(session)).andExpect(status().isOk())
-   .andExpect(jsonPath("$.user.email").value(a.email));
+  mvc.perform(get("/shop-api/account").session(session)).andExpect(status().isUnauthorized());
  }
  String yc13Token(Account account)throws Exception{return loginToken(passwordApiLogin(account.email,"Original@123"));}
  ResultActions yc13Profile(String token,Map<String,Object> body)throws Exception{
