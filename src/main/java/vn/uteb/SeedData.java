@@ -9,53 +9,55 @@ import static vn.uteb.Domain.*;
 public class SeedData implements ApplicationRunner {
  static final String MENU_PLACEHOLDER="/assets/menu/photo-pending.png";
  static final Map<String,String> MENU_IMAGES=Map.ofEntries(
-  Map.entry("Burrito Gà nướng","/assets/menu/burrito-grilled-chicken-full-plate.jpg"),
-  Map.entry("Burrito Bò BBQ","/assets/menu/burrito-bbq-beef-full-plate.jpg"),
-  Map.entry("Burrito Heo xé","/assets/menu/burrito-pulled-pork-full-plate.jpg"),
-  Map.entry("Burrito Chay","/assets/menu/burrito-vegetarian-full-plate.jpg"),
-  Map.entry("Burrito Gà cay","/assets/menu/burrito-spicy-chicken-full-plate.jpg"),
-  Map.entry("Burrito Bò đặc biệt","/assets/menu/burrito-premium-beef-full-plate.jpg"),
-  Map.entry("Bowl Gà nướng","/assets/menu/bowl-grilled-chicken-wide.jpg"),
-  Map.entry("Bowl Bò BBQ","/assets/menu/bowl-bbq-beef-wide.jpg"),
+  Map.entry("Burrito Gà nướng","/assets/menu/burrito-grilled-chicken-cutout.png"),
+  Map.entry("Burrito Bò BBQ","/assets/menu/burrito-bbq-beef-cutout.png"),
+  Map.entry("Burrito Heo xé","/assets/menu/burrito-pulled-pork-cutout.png"),
+  Map.entry("Burrito Chay","/assets/menu/burrito-vegetarian-cutout.png"),
+  Map.entry("Burrito Gà cay","/assets/menu/burrito-spicy-chicken-cutout.png"),
+  Map.entry("Burrito Bò đặc biệt","/assets/menu/burrito-premium-beef-cutout.png"),
+  Map.entry("Burrito Trứng phô mai","/assets/menu/burrito-egg-cheese-cutout.png"),
+  Map.entry("Burrito Gà guacamole","/assets/menu/burrito-chicken-guacamole-cutout.png"),
+  Map.entry("Bowl Gà nướng","/assets/menu/bowl-grilled-chicken-cutout.png"),
+  Map.entry("Bowl Bò BBQ","/assets/menu/bowl-bbq-beef-cutout.png"),
   Map.entry("Bowl Heo xé","/assets/menu/bowl-pulled-pork-wide.jpg"),
   Map.entry("Bowl Chay","/assets/menu/bowl-vegetarian-wide.jpg"),
   Map.entry("Bowl Gà cay","/assets/menu/bowl-spicy-chicken-wide.jpg"),
   Map.entry("Bowl Bò đặc biệt","/assets/menu/bowl-premium-beef-wide.jpg"),
-  Map.entry("Tacos Gà nướng","/assets/menu/tacos-grilled-chicken-full-plate.jpg"),
+  Map.entry("Tacos Gà nướng","/assets/menu/tacos-grilled-chicken-cutout.png"),
   Map.entry("Tacos Bò BBQ","/assets/menu/tacos-bbq-beef-full-plate.jpg"),
   Map.entry("Tacos Heo xé","/assets/menu/tacos-pulled-pork-full-plate.jpg"),
-  Map.entry("Tacos Chay","/assets/menu/tacos-vegetarian-full-plate.jpg"),
+  Map.entry("Tacos Chay","/assets/menu/tacos-vegetarian-cutout.png"),
   Map.entry("Tacos Gà cay","/assets/menu/tacos-spicy-chicken-full-plate.jpg"),
   Map.entry("Tacos Bò đặc biệt","/assets/menu/tacos-premium-beef-full-plate.jpg"),
-  Map.entry("Quesadilla Gà nướng","/assets/menu/quesadilla-grilled-chicken-full-plate.jpg"),
-  Map.entry("Quesadilla Bò BBQ","/assets/menu/quesadilla-bbq-beef-full-plate.jpg"),
+  Map.entry("Quesadilla Gà nướng","/assets/menu/quesadilla-grilled-chicken-cutout.png"),
+  Map.entry("Quesadilla Bò BBQ","/assets/menu/quesadilla-bbq-beef-cutout.png"),
   Map.entry("Quesadilla Heo xé","/assets/menu/quesadilla-pulled-pork-full-plate.jpg"),
   Map.entry("Quesadilla Chay","/assets/menu/quesadilla-vegetarian-full-plate.jpg"),
   Map.entry("Quesadilla Gà cay","/assets/menu/quesadilla-spicy-chicken-full-plate.jpg"),
   Map.entry("Quesadilla Bò đặc biệt","/assets/menu/quesadilla-premium-beef-full-plate.jpg"),
-  Map.entry("Salad Gà nướng","/assets/menu/salad-grilled-chicken-wide.jpg"),
+  Map.entry("Salad Gà nướng","/assets/menu/salad-grilled-chicken-cutout.png"),
   Map.entry("Salad Bò BBQ","/assets/menu/salad-bbq-beef-wide.jpg"),
   Map.entry("Salad Heo xé","/assets/menu/salad-pulled-pork-wide.jpg"),
-  Map.entry("Salad Chay","/assets/menu/salad-vegetarian-wide.jpg"),
+  Map.entry("Salad Chay","/assets/menu/salad-vegetarian-cutout.png"),
   Map.entry("Salad Gà cay","/assets/menu/salad-spicy-chicken-wide.jpg"),
   Map.entry("Salad Bò đặc biệt","/assets/menu/salad-premium-beef-wide.jpg"),
-  Map.entry("Kids Gà nướng","/assets/menu/kids-grilled-chicken-full-plate.jpg"),
-  Map.entry("Kids Bò BBQ","/assets/menu/kids-bbq-beef-full-plate.jpg"),
+  Map.entry("Kids Gà nướng","/assets/menu/kids-grilled-chicken-cutout.png"),
+  Map.entry("Kids Bò BBQ","/assets/menu/kids-bbq-beef-cutout.png"),
   Map.entry("Kids Heo xé","/assets/menu/kids-pulled-pork-full-plate.jpg"),
   Map.entry("Kids Chay","/assets/menu/kids-vegetarian-full-plate.jpg"),
   Map.entry("Kids Gà cay","/assets/menu/kids-spicy-chicken-full-plate.jpg"),
   Map.entry("Kids Bò đặc biệt","/assets/menu/kids-premium-beef-full-plate.jpg"),
-  Map.entry("Chips & Salsa","/assets/menu/chips-salsa-full-plate.jpg"),
-  Map.entry("Chips & Guacamole","/assets/menu/chips-guacamole-full-plate.jpg"),
-  Map.entry("Chips & Queso","/assets/menu/chips-queso-full-plate.jpg"),
+  Map.entry("Chips & Salsa","/assets/menu/chips-salsa-cutout.png"),
+  Map.entry("Chips & Guacamole","/assets/menu/chips-guacamole-cutout.png"),
+  Map.entry("Chips & Queso","/assets/menu/chips-queso-cutout.png"),
   Map.entry("Khoai nướng","/assets/menu/roasted-potatoes-full-plate.jpg"),
   Map.entry("Salsa tươi","/assets/menu/fresh-salsa-wide.jpg"),
   Map.entry("Guacamole","/assets/menu/guacamole-wide.jpg"),
-  Map.entry("Trà chanh","/assets/menu/lemon-iced-tea-wide.jpg"),
+  Map.entry("Trà chanh","/assets/menu/lemon-iced-tea-cutout.png"),
   Map.entry("Soda chanh","/assets/menu/lime-soda-wide.jpg"),
   Map.entry("Trà đào","/assets/menu/peach-iced-tea-wide.jpg"),
-  Map.entry("Nước suối","/assets/menu/mineral-water-wide.jpg"),
-  Map.entry("Cola","/assets/menu/cola-wide.jpg"),
+  Map.entry("Nước suối","/assets/menu/mineral-water-cutout.png"),
+  Map.entry("Cola","/assets/menu/cola-cutout.png"),
   Map.entry("Nước cam","/assets/menu/orange-juice-wide.jpg")
  );
  static final Map<String,String> SIDE_DESCRIPTIONS=Map.of(
@@ -89,10 +91,20 @@ public class SeedData implements ApplicationRunner {
  static final int[] MENU_BASE_CALORIES={320,35,210,430,80,150};
  static final int[] SIDE_CALORIES={300,385,390,220,25,230};
  static final int[] DRINK_CALORIES={80,120,110,0,139,120};
+ static final Set<String> CURATED_MENU=Set.of(
+  "Burrito Gà nướng","Burrito Bò BBQ","Burrito Heo xé","Burrito Chay","Burrito Gà cay","Burrito Bò đặc biệt",
+  "Burrito Trứng phô mai","Burrito Gà guacamole",
+  "Bowl Gà nướng","Bowl Bò BBQ","Tacos Gà nướng","Tacos Chay",
+  "Quesadilla Gà nướng","Quesadilla Bò BBQ","Salad Gà nướng","Salad Chay",
+  "Kids Gà nướng","Kids Bò BBQ","Chips & Salsa","Chips & Guacamole","Chips & Queso",
+  "Trà chanh","Nước suối","Cola"
+ );
  static int menuCalories(int category,int variant){
   return category<6?MENU_BASE_CALORIES[category]:category==6?SIDE_CALORIES[variant]:DRINK_CALORIES[variant];
  }
  static String menuDescription(String category,String name){
+  if("Burrito Trứng phô mai".equals(name))return "Burrito nhân trứng, phô mai, cơm, salsa cà chua và rau; khẩu phần cố định.";
+  if("Burrito Gà guacamole".equals(name))return "Burrito gà nướng, guacamole, cơm, đậu đen, salsa cà chua và rau; khẩu phần cố định.";
   if("Sides".equals(category))return SIDE_DESCRIPTIONS.get(name);
   if("Drinks".equals(category))return DRINK_DESCRIPTIONS.get(name);
   String filling=name.substring(category.length()+1).toLowerCase(Locale.ROOT);
@@ -110,7 +122,9 @@ public class SeedData implements ApplicationRunner {
  @Transactional public void run(ApplicationArguments args){if(!demo||!enabled||!s.all(Store.class).isEmpty())return;
   String[] names={"UTEB Võ Văn Ngân","UTEB Quận 1","UTEB Bình Thạnh","UTEB Thủ Đức"};String[] addresses={"1 Võ Văn Ngân, phường Linh Chiểu, TP. Thủ Đức","68 Nguyễn Huệ, phường Bến Nghé, Quận 1","215 Điện Biên Phủ, phường 15, Bình Thạnh","88 Hoàng Diệu 2, phường Linh Chiểu, TP. Thủ Đức"};double[][] positions={{10.8505000,106.7713056},{10.7745167,106.7031722},{10.8000835,106.7064464},{10.8567000,106.7650860}};List<Store>stores=new ArrayList<>();for(int i=0;i<4;i++){Store st=new Store();st.name=names[i];st.address=addresses[i];st.phone="028 3896 123"+i;st.latitude=positions[i][0];st.longitude=positions[i][1];s.save(st);stores.add(st);}
   String[] cats={"Burrito","Bowl","Tacos","Quesadilla","Salad","Kids","Sides","Drinks"};for(String name:cats){Category c=new Category();c.name=name;c.slug=name.toLowerCase(Locale.ROOT);s.save(c);}
-  String[] variants={"Gà nướng","Bò BBQ","Heo xé","Chay","Gà cay","Bò đặc biệt"};for(int cat=0;cat<8;cat++)for(int v=0;v<6;v++){Product p=new Product();p.category=cats[cat];p.name=cat<6?cats[cat]+" "+variants[v]:cat==6?new String[]{"Chips & Salsa","Chips & Guacamole","Chips & Queso","Khoai nướng","Salsa tươi","Guacamole"}[v]:new String[]{"Trà chanh","Soda chanh","Trà đào","Nước suối","Cola","Nước cam"}[v];p.description=menuDescription(p.category,p.name);p.storeId=stores.get(v%4).id;p.price=BigDecimal.valueOf(MENU_PRICES[cat][v]);p.calories=menuCalories(cat,v);p.customizable=cat<6;p.image=MENU_IMAGES.getOrDefault(p.name,MENU_PLACEHOLDER);p.available=true;s.save(p);}
+  String[] variants={"Gà nướng","Bò BBQ","Heo xé","Chay","Gà cay","Bò đặc biệt"};List<Product>originals=new ArrayList<>();for(int cat=0;cat<8;cat++)for(int v=0;v<6;v++){Product p=new Product();p.category=cats[cat];p.name=cat<6?cats[cat]+" "+variants[v]:cat==6?new String[]{"Chips & Salsa","Chips & Guacamole","Chips & Queso","Khoai nướng","Salsa tươi","Guacamole"}[v]:new String[]{"Trà chanh","Soda chanh","Trà đào","Nước suối","Cola","Nước cam"}[v];p.description=menuDescription(p.category,p.name);p.storeId=stores.get(v%4).id;p.price=BigDecimal.valueOf(MENU_PRICES[cat][v]);p.calories=menuCalories(cat,v);p.customizable=cat<6;p.image=MENU_IMAGES.getOrDefault(p.name,MENU_PLACEHOLDER);p.available=CURATED_MENU.contains(p.name);s.save(p);originals.add(p);}
+  for(Product source:originals)if(source.available)for(Store store:stores)if(!store.id.equals(source.storeId)){Product p=new Product();p.name=source.name;p.category=source.category;p.description=source.description;p.image=source.image;p.storeId=store.id;p.price=source.price;p.calories=source.calories;p.stock=source.stock;p.customizable=source.customizable;s.save(p);}
+  for(Store store:stores){Product egg=new Product();egg.name="Burrito Trứng phô mai";egg.category="Burrito";egg.description=menuDescription(egg.category,egg.name);egg.image=MENU_IMAGES.get(egg.name);egg.storeId=store.id;egg.price=BigDecimal.valueOf(89000);egg.calories=650;egg.customizable=false;s.save(egg);Product guac=new Product();guac.name="Burrito Gà guacamole";guac.category="Burrito";guac.description=menuDescription(guac.category,guac.name);guac.image=MENU_IMAGES.get(guac.name);guac.storeId=store.id;guac.price=BigDecimal.valueOf(105000);guac.calories=780;guac.customizable=false;s.save(guac);}
   ingredient("Gà nướng","PROTEIN",0,180,"");ingredient("Bò BBQ","PROTEIN",15000,220,"");ingredient("Heo xé","PROTEIN",10000,210,"");ingredient("Đậu hũ chay","PROTEIN",0,150,"Đậu nành");ingredient("Cơm trắng","RICE",0,210,"");ingredient("Cơm gạo lứt","RICE",0,190,"");ingredient("Không cơm","RICE",0,0,"");ingredient("Đậu đen","BEANS",0,130,"");ingredient("Đậu pinto","BEANS",0,120,"");ingredient("Không đậu","BEANS",0,0,"");ingredient("Salsa cà chua","SAUCE",0,25,"");ingredient("Sốt cay","SAUCE",0,20,"");ingredient("Không sốt","SAUCE",0,0,"");ingredient("Phô mai","TOPPING",0,110,"Sữa");ingredient("Xà lách","TOPPING",0,10,"");ingredient("Rau củ áp chảo","TOPPING",0,45,"");ingredient("Kem chua","TOPPING",0,90,"Sữa");ingredient("Thêm thịt","EXTRA",25000,180,"");ingredient("Guacamole","EXTRA",15000,100,"");ingredient("Thêm phô mai","EXTRA",10000,110,"Sữa");
   voucher("UTEB20","Ưu đãi 20%","PERCENT",20,100000,50000);voucher("BURRITO50","Giảm 50.000đ","FIXED",50000,200000,50000);voucher("FREEGUAC","Tặng vị bơ","FIXED",15000,89000,15000);
   if(demo){Account customer=account("customer@uteb.vn","Khách hàng UTEB","CUSTOMER",null);customer.points=1500;Account staff=account("staff@uteb.vn","Nhân viên Võ Văn Ngân","STAFF",stores.getFirst().id);account("manager@uteb.vn","Quản lý Võ Văn Ngân","MANAGER",stores.getFirst().id);account("admin@uteb.vn","Quản trị UTEB","ADMIN",null);Account shipper=account("shipper@uteb.vn","Người giao hàng UTEB","SHIPPER",stores.getFirst().id);Account vendor=account("vendor@uteb.vn","Đối tác Võ Văn Ngân","CUSTOMER,VENDOR",stores.getFirst().id);account("vendor2@uteb.vn","Đối tác Quận 1","CUSTOMER,VENDOR",stores.get(1).id);stores.getFirst().ownerId=vendor.id;

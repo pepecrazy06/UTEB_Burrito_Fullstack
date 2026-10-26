@@ -932,7 +932,7 @@ class CommerceTest {
  Product custom(Long store){return s.all(Product.class).stream().filter(p->p.storeId.equals(store)&&p.customizable&&p.available).findFirst().orElseThrow();}
  String ingredients(){return List.of("PROTEIN","RICE","BEANS","SAUCE").stream().map(g->s.all(Ingredient.class).stream().filter(i->i.groupName.equals(g)&&i.price.signum()==0).findFirst().orElseThrow().id.toString()).collect(java.util.stream.Collectors.joining(","));}
  Map<String,Object> checkout(String key,String type){return new HashMap<>(Map.of("checkoutKey",key,"type",type,"contactName","Test Customer","phone","0901234567","address","25 Võ Văn Ngân, Thủ Đức","paymentMethod","COD","scheduledAt","ASAP"));}
- @Test void publicCatalogAndAnonymousProtection()throws Exception{mvc.perform(get("/shop-api/public/bootstrap")).andExpect(status().isOk()).andExpect(jsonPath("$.products.length()").value(48)).andExpect(jsonPath("$.csrf").exists());mvc.perform(get("/shop-api/cart")).andExpect(status().isUnauthorized());}
+ @Test void publicCatalogAndAnonymousProtection()throws Exception{mvc.perform(get("/shop-api/public/bootstrap")).andExpect(status().isOk()).andExpect(jsonPath("$.products.length()").value(96)).andExpect(jsonPath("$.csrf").exists());mvc.perform(get("/shop-api/cart")).andExpect(status().isUnauthorized());}
  @Test @WithMockUser(username="customer@uteb.vn")void csrfAndPrivilegeChecks()throws Exception{mvc.perform(post("/shop-api/cart").contentType("application/json").content("{}" )).andExpect(status().isForbidden());mvc.perform(get("/shop-api/admin/users")).andExpect(status().isForbidden());}
  @Test @WithMockUser(username="customer@uteb.vn")void checkoutRecalculatesIdempotencyAndCancel(){Product p=custom(1L);int stock=p.stock;s.cart(Map.of("productId",p.id,"quantity",2,"ingredientIds",ingredients()));Map<String,Object>b=checkout("unique-checkout-0001","PICKUP");b.put("total",1);MealOrder o=s.checkout(b).getFirst();assertThat(o.total).isGreaterThan(new BigDecimal("1"));assertThat(p.stock).isEqualTo(stock-2);assertThat(s.checkout(b).getFirst().id).isEqualTo(o.id);assertThat(s.where(OrderLine.class,"orderId",o.id)).hasSize(1);s.status(o.id,Map.of("status","CANCELLED"));assertThat(p.stock).isEqualTo(stock);assertThat(o.status).isEqualTo("CANCELLED");assertThatThrownBy(()->s.status(o.id,Map.of("status","CONFIRMED"))).hasMessageContaining("Không thể chuyển");}
  @Test @WithMockUser(username="customer@uteb.vn")void multiStoreVoucherAllocation(){Product p1=custom(1L),p2=custom(2L);s.cart(Map.of("productId",p1.id,"quantity",2,"ingredientIds",ingredients()));s.cart(Map.of("productId",p2.id,"quantity",2,"ingredientIds",ingredients()));Map<String,Object>b=checkout("multi-store-test-0001","DELIVERY");b.put("voucher","UTEB20");Map<String,Object>q=s.preview(b);List<MealOrder> os=s.checkout(b);assertThat(os).hasSize(2);assertThat(os.stream().map(o->o.discount).reduce(BigDecimal.ZERO,BigDecimal::add)).isEqualByComparingTo((BigDecimal)q.get("discount"));assertThat(os.stream().map(o->o.total).reduce(BigDecimal.ZERO,BigDecimal::add)).isEqualByComparingTo((BigDecimal)q.get("total"));assertThat(s.findVoucher("UTEB20").used).isEqualTo(1);}
@@ -1034,7 +1034,7 @@ class CommerceTest {
   finally{otpTransaction(()->{Account a=s.byEmail(body.get("email").toString());if(a!=null)registrationEm.remove(a);return null;});}
  }
  @Test void curatedMenuImagesMatchSeededProductsAndExistingAssets(){
-  assertThat(SeedData.MENU_IMAGES).hasSize(48);
+  assertThat(SeedData.MENU_IMAGES).hasSize(50);
   for(var entry:SeedData.MENU_IMAGES.entrySet()){
    Product product=s.all(Product.class).stream().filter(p->p.name.equals(entry.getKey())).findFirst().orElseThrow();
    assertThat(product.image).isEqualTo(entry.getValue());
@@ -1043,10 +1043,49 @@ class CommerceTest {
    assertThat(getClass().getResource("/static"+product.image)).isNotNull();
   }
   assertThat(getClass().getResource("/static"+SeedData.MENU_PLACEHOLDER)).isNotNull();
-  assertThat(s.all(Product.class)).hasSize(48);
-  assertThat(s.publicData().get("products")).asList().hasSize(48);
+  assertThat(s.all(Product.class)).hasSize(122);
+  assertThat(s.publicData().get("products")).asList().hasSize(96);
   assertThat(s.all(Product.class).stream().filter(p->p.available&&p.image.equals(SeedData.MENU_PLACEHOLDER))).isEmpty();
-  assertThat(s.all(Product.class).stream().map(p->p.image)).doesNotHaveDuplicates();
+  assertThat(SeedData.MENU_IMAGES.values()).doesNotHaveDuplicates();
+ }
+ @Test void curatedMenuHasEightBurritosAndSmallOtherCategoriesAtEveryStore(){
+  List<Product> visible=s.all(Product.class).stream().filter(p->p.available).toList();
+  assertThat(SeedData.CURATED_MENU).hasSize(24);
+  for(Store store:s.all(Store.class)){
+   List<Product> local=visible.stream().filter(p->store.id.equals(p.storeId)).toList();
+   assertThat(local).hasSize(24);
+   assertThat(local.stream().map(p->p.name)).containsExactlyInAnyOrderElementsOf(SeedData.CURATED_MENU);
+   assertThat(local.stream().map(p->p.name)).doesNotHaveDuplicates();
+   assertThat(local.stream().filter(p->p.category.equals("Burrito"))).hasSize(8);
+   for(String category:List.of("Bowl","Tacos","Quesadilla","Salad","Kids"))
+    assertThat(local.stream().filter(p->p.category.equals(category))).hasSize(2);
+   for(String category:List.of("Sides","Drinks"))
+    assertThat(local.stream().filter(p->p.category.equals(category))).hasSize(3);
+   assertThat(local.stream().filter(p->p.name.equals("Burrito Trứng phô mai")||p.name.equals("Burrito Gà guacamole")))
+    .hasSize(2).allSatisfy(p->assertThat(p.customizable).isFalse());
+  }
+  assertThat(s.all(Product.class).stream().filter(p->p.name.equals("Bowl Heo xé")))
+   .hasSize(1).allSatisfy(p->assertThat(p.available).isFalse());
+ }
+ @Test void curatedMenuImagesHaveTransparentBackground()throws Exception{
+  for(String name:SeedData.CURATED_MENU){
+   String path=SeedData.MENU_IMAGES.get(name);
+   assertThat(path).as(name).endsWith("-cutout.png");
+   try(var stream=getClass().getResourceAsStream("/static"+path)){
+    assertThat(stream).as(path).isNotNull();
+    var image=javax.imageio.ImageIO.read(stream);
+    assertThat(image).as(path).isNotNull();
+    assertThat(image.getColorModel().hasAlpha()).as(path).isTrue();
+    for(int[] corner:new int[][]{{0,0},{image.getWidth()-1,0},{0,image.getHeight()-1},{image.getWidth()-1,image.getHeight()-1}})
+     assertThat(image.getRGB(corner[0],corner[1])>>>24).as(path).isLessThanOrEqualTo(1);
+   }
+  }
+ }
+ @Test @WithMockUser(username="customer@uteb.vn") void hiddenSampleProductCannotBeAddedToCart()throws Exception{
+  Product hidden=s.all(Product.class).stream().filter(p->p.name.equals("Bowl Heo xé")).findFirst().orElseThrow();
+  mvc.perform(post("/shop-api/cart").with(csrf()).contentType("application/json")
+   .content(json.writeValueAsString(Map.of("productId",hidden.id,"quantity",1))))
+   .andExpect(status().isBadRequest());
  }
  @Test void vegetarianMenuRejectsMeatEvenWhenCalledDirectly(){
   Product vegetarian=s.all(Product.class).stream().filter(p->p.name.equals("Burrito Chay")).findFirst().orElseThrow();
@@ -1059,7 +1098,7 @@ class CommerceTest {
  }
  @Test void researchedMenuPricesCaloriesAndStoresAreConsistent(){
   List<Product>products=s.all(Product.class);
-  assertThat(products).hasSize(48).allSatisfy(p->{
+  assertThat(products).hasSize(122).allSatisfy(p->{
    assertThat(p.price).isPositive();
    assertThat(p.stock).isEqualTo(100);
    assertThat(p.calories).isGreaterThanOrEqualTo(0);
