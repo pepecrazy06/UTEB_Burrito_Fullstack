@@ -208,8 +208,13 @@ async function submitOtp(form, body) {
       document.querySelector('#otp-message').textContent = result.message + ' Kiểm tra cả thư rác.';
       document.querySelector('#otp-code').focus();
     } else {
-      toast(body.purpose === 'RESET' ? 'Đã đổi mật khẩu. Hãy đăng nhập bằng mật khẩu mới.' : result.message);
-      location.hash = '#login';
+      if (body.purpose === 'RESET' && state.user?.email.toLowerCase() === body.email.toLowerCase()) {
+        await endLoginSession('Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại bằng mật khẩu mới.');
+      } else {
+        toast(body.purpose === 'RESET' ? 'Đặt lại mật khẩu thành công. Vui lòng đăng nhập bằng mật khẩu mới.' : result.message);
+        location.hash = '#login';
+        if (body.purpose === 'RESET') { const data = await api('/public/bootstrap'); state.csrf = data.csrf || ''; }
+      }
     }
   } catch (err) {
     error.textContent = err.message; error.hidden = false; throw err;
