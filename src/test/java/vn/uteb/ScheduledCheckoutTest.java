@@ -54,7 +54,18 @@ class ScheduledCheckoutTest {
         for(Store s:List.of(a,b))em.remove(em.find(Store.class,s.id));em.remove(em.find(Account.class,customer.id));em.remove(em.find(Account.class,admin.id));
     });}
     Map<String,Object> body(String time){return new HashMap<>(Map.of("checkoutKey",UUID.randomUUID().toString(),"type","PICKUP","contactName","Schedule Test","phone","0901234567","paymentMethod","COD","scheduledAt",time,"voucher",voucher.code));}
-    ResultActions checkout(String prefix,Map<String,Object> body)throws Exception{return mvc.perform(post(prefix+"/checkout").with(user(customer.email)).with(csrf()).contentType("application/json").content(json.writeValueAsString(body)));}
+    org.springframework.mock.web.MockHttpSession loginSnapshot(){
+        Account account=tx().execute(tx->em.find(Account.class,customer.id));
+        var session=new org.springframework.mock.web.MockHttpSession();
+        session.setAttribute(SessionSecurityService.ACCOUNT_ID,account.id);
+        session.setAttribute(SessionSecurityService.TOKEN_VERSION,account.tokenVersion);
+        return session;
+    }
+    ResultActions checkout(String prefix,Map<String,Object> body)throws Exception{
+        var request=post(prefix+"/checkout").with(user(customer.email)).with(csrf()).contentType("application/json").content(json.writeValueAsString(body));
+        if(prefix.equals("/shop-api"))request.session(loginSnapshot());
+        return mvc.perform(request);
+    }
     ResultActions preview(Map<String,Object> body)throws Exception{return mvc.perform(post("/api/checkout/preview").with(user(customer.email)).contentType("application/json").content(json.writeValueAsString(body)));}
     void untouched(){tx().executeWithoutResult(tx->{
         assertThat(em.find(Product.class,productA.id).stock).isEqualTo(10);assertThat(em.find(Product.class,productB.id).stock).isEqualTo(10);assertThat(em.find(Voucher.class,voucher.id).used).isZero();assertThat(em.find(Account.class,customer.id).points).isEqualTo(500);
@@ -110,4 +121,18 @@ class ScheduledCheckoutTest {
         checkout("/api",body("2026-10-26T01:00")).andExpect(status().isOk());
     }
     @Test void retrySameCheckoutKeyDoesNotCreateAnotherOrder()throws Exception{var body=body("2026-10-26T12:00");var result=checkout("/api",body).andExpect(status().isOk()).andReturn();long id=json.readTree(result.getResponse().getContentAsString()).get(0).get("id").asLong();checkout("/api",body).andExpect(status().isOk()).andExpect(jsonPath("$[0].id").value(id));tx().executeWithoutResult(tx->assertThat(em.find(Product.class,productA.id).stock).isEqualTo(8));}
+    @Test void revokedBrowserCannotCreateAScheduledOrder()throws Exception{
+        var oldSession=loginSnapshot();
+        tx().executeWithoutResult(tx->em.find(Account.class,customer.id).tokenVersion++);
+        mvc.perform(post("/shop-api/checkout").session(oldSession).with(user(customer.email)).with(csrf())
+            .contentType("application/json").content(json.writeValueAsString(body("2026-10-26T12:00"))))
+            .andExpect(status().isUnauthorized());
+        untouched();
+    }
+    @Test void renewedBrowserCanCreateAScheduledOrderAfterRevocation()throws Exception{
+        tx().executeWithoutResult(tx->em.find(Account.class,customer.id).tokenVersion++);
+        checkout("/shop-api",body("2026-10-26T12:00"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$[0].scheduledAt").value("2026-10-26T12:00"));
+        tx().executeWithoutResult(tx->assertThat(em.find(Product.class,productA.id).stock).isEqualTo(8));
+    }
 }

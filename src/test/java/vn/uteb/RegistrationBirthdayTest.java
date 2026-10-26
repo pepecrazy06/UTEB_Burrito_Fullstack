@@ -79,7 +79,10 @@ class RegistrationBirthdayTest {
         var account = service.byEmail("customer@uteb.vn");
         account.birthDate = LocalDate.of(2000, 1, 2);
         em.flush();
-        mvc.perform(put("/shop-api/account/profile").with(csrf()).contentType("application/json")
+        var session = new org.springframework.mock.web.MockHttpSession();
+        session.setAttribute(SessionSecurityService.ACCOUNT_ID, account.id);
+        session.setAttribute(SessionSecurityService.TOKEN_VERSION, account.tokenVersion);
+        mvc.perform(put("/shop-api/account/profile").session(session).with(csrf()).contentType("application/json")
             .content(json.writeValueAsString(Map.of("name", "Customer Updated", "phone", "0901234567", "birthDate", "2001-02-03"))))
             .andExpect(status().isOk()).andExpect(jsonPath("$.birthDate").value("2000-01-02"));
         em.flush();

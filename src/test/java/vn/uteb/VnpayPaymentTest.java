@@ -37,6 +37,11 @@ class VnpayPaymentTest {
     @jakarta.persistence.PersistenceContext jakarta.persistence.EntityManager em;
     @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
 
+    org.springframework.mock.web.MockHttpSession loginSnapshot(String email) {
+        Account account=shop.byEmail(email);var session=new org.springframework.mock.web.MockHttpSession();
+        session.setAttribute(SessionSecurityService.ACCOUNT_ID,account.id);session.setAttribute(SessionSecurityService.TOKEN_VERSION,account.tokenVersion);return session;
+    }
+
     MealOrder order() {
         Product p=shop.all(Product.class).stream().filter(x->!x.customizable&&x.storeId.equals(1L)).findFirst().orElseThrow();
         shop.cart(Map.of("productId",p.id,"quantity",1,"ingredientIds",""));
@@ -142,11 +147,11 @@ class VnpayPaymentTest {
         assertThatThrownBy(()->payments.start(o.id,"127.0.0.1")).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);assertThat(vnpay.attempts(o.id)).isEmpty();
     }
     @Test void cannotSettleVnpayThroughDemoSimulationEndpoint()throws Exception {
-        MealOrder o=order();mvc.perform(post("/shop-api/orders/"+o.id+"/simulate").with(user("customer@uteb.vn")).with(csrf()).contentType("application/json").content("{\"success\":true}"))
+        MealOrder o=order();mvc.perform(post("/shop-api/orders/"+o.id+"/simulate").session(loginSnapshot("customer@uteb.vn")).with(user("customer@uteb.vn")).with(csrf()).contentType("application/json").content("{\"success\":true}"))
             .andExpect(status().isBadRequest());assertThat(o.paymentStatus).isEqualTo("PENDING");
     }
     @Test void wrongCustomerCannotCreatePayment()throws Exception {
-        MealOrder o=order();mvc.perform(post("/shop-api/orders/"+o.id+"/payment").with(user("vendor2@uteb.vn")).with(csrf()).contentType("application/json").content("{}"))
+        MealOrder o=order();mvc.perform(post("/shop-api/orders/"+o.id+"/payment").session(loginSnapshot("vendor2@uteb.vn")).with(user("vendor2@uteb.vn")).with(csrf()).contentType("application/json").content("{}"))
             .andExpect(status().isForbidden());assertThat(vnpay.attempts(o.id)).isEmpty();
     }
     @Test void missingMerchantSettingsFailWithoutCreatingAnAttempt() {
