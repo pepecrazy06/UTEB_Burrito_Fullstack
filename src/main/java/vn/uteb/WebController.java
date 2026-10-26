@@ -61,7 +61,7 @@ public class WebController {
  @PostMapping("/catering")CateringRequest cateringSave(@RequestBody Map<String,Object>b){return s.catering(b);}
  @PostMapping("/shops/apply")ShopApplication apply(@RequestBody Map<String,Object>b){return s.shopApplication(b);}
  @PutMapping("/shops/applications/{id}")void approve(@PathVariable long id,@RequestBody Map<String,Object>b){s.approveShop(id,b);}
- @GetMapping("/admin/dashboard")Map<String,Object>dashboard(){return s.dashboard();}
+ @GetMapping("/admin/dashboard")Map<String,Object>dashboard(@RequestParam(required=false)String startDate,@RequestParam(required=false)String endDate,@RequestParam(required=false)String storeId){return s.dashboard(startDate,endDate,storeId);}
  @GetMapping("/admin/shippers")List<?>shippers(@RequestParam(required=false)Long orderId){return s.shippers(orderId);}
  @GetMapping("/admin/{resource}")List<?>adminList(@PathVariable String resource){return s.adminList(resource);}
  @PostMapping("/admin/{resource}")Object adminSave(@PathVariable String resource,@RequestBody Map<String,Object>b){return s.adminSave(resource,b);}

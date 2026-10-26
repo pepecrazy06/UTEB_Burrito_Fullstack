@@ -36,7 +36,7 @@ try {
         if ($collation -notmatch '_UTF8$') {
             throw 'Empty database needs a UTF8 collation before V1 varchar columns are created. Review and approve ALTER DATABASE separately.'
         }
-        $files = @('V1__schema.sql','V2__constraints.sql','V3__catalog_seed.sql','V4__account_birth_date.sql','V5__vnpay_payment_attempts.sql','V6__order_cancellations.sql')
+        $files = @('V1__schema.sql','V2__constraints.sql','V3__catalog_seed.sql','V4__account_birth_date.sql','V5__vnpay_payment_attempts.sql','V8__order_cancellations.sql')
     } elseif ($historyExists -eq 0) {
         throw 'Existing tables without migration history: stop for a manual schema audit. Never recreate them.'
     } else {
@@ -52,9 +52,17 @@ try {
         }
         if (4 -notin $versions) { $files += 'V4__account_birth_date.sql' }
         if (5 -notin $versions) { $files += 'V5__vnpay_payment_attempts.sql' }
-        if (6 -notin $versions) { $files += 'V6__order_cancellations.sql' }
+        if (8 -notin $versions) { $files += 'V8__order_cancellations.sql' }
+        else {
+            if ([int](Read-Scalar "SELECT COUNT(*) FROM dbo.schema_migrations WHERE version_no=8 AND name=N'V8__order_cancellations'") -ne 1) {
+                throw 'V8 belongs to a different migration. Stop for a manual audit.'
+            }
+            if ([int](Read-Scalar "SELECT COUNT(*) FROM sys.tables WHERE object_id=OBJECT_ID(N'dbo.order_cancellations')") -ne 1) {
+                throw 'V8 is recorded but order_cancellations is missing. Restore/audit; do not recreate data.'
+            }
+        }
     }
-    if ($files.Count -eq 0) { Write-Output 'No pending V1-V6 migrations.'; return }
+    if ($files.Count -eq 0) { Write-Output 'No pending migrations for this branch (V1-V5 and V8).'; return }
     Write-Output "Pending: $($files -join ', ')"
     if (!$Apply) { Write-Output 'Plan only. Run with -Apply only after approval.'; return }
     $transaction = $connection.BeginTransaction()
