@@ -30,7 +30,7 @@ public class SqlServerEnvironment implements EnvironmentPostProcessor, Ordered {
         for (String key : windows ? new String[]{"DB_URL"} : new String[]{"DB_URL", "DB_USER", "DB_PASSWORD"}) {
             if (environment.getProperty(key, "").isBlank()) {
                 throw new IllegalStateException("SQL Server thiếu " + key
-                        + ". Đặt biến trong IntelliJ Run Configuration hoặc terminal; .env không tự được nạp.");
+                        + ". Chạy .\\sql\\Save-LocalConfig.ps1 một lần để lưu .env.local.properties, hoặc đặt biến trong IntelliJ/terminal. Xem LOCAL_SETUP.md.");
             }
         }
         String url = environment.getProperty("spring.datasource.url", "");
