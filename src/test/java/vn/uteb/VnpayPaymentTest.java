@@ -38,7 +38,7 @@ class VnpayPaymentTest {
     @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     MealOrder order() {
-        Product p=shop.all(Product.class).stream().filter(x->!x.customizable&&x.storeId.equals(1L)).findFirst().orElseThrow();
+        Product p=shop.all(Product.class).stream().filter(x->!x.customizable&&x.available).findFirst().orElseThrow();
         shop.cart(Map.of("productId",p.id,"quantity",1,"ingredientIds",""));
         return shop.checkout(Map.of("checkoutKey",UUID.randomUUID().toString(),"paymentMethod","VNPAY","type","PICKUP",
             "contactName","Test Customer","phone","0901234567","scheduledAt","ASAP")).getFirst();

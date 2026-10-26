@@ -892,7 +892,7 @@ class CommerceTest {
   yc14Get(managerToken,"users").andExpect(status().isOk());
   yc14Get(managerToken,"settings").andExpect(status().isForbidden());
  }
- Product custom(Long store){return s.all(Product.class).stream().filter(p->p.storeId.equals(store)&&p.customizable).findFirst().orElseThrow();}
+ Product custom(Long store){return s.all(Product.class).stream().filter(p->p.storeId.equals(store)&&p.customizable&&p.available).findFirst().orElseThrow();}
  String ingredients(){return List.of("PROTEIN","RICE","BEANS","SAUCE").stream().map(g->s.all(Ingredient.class).stream().filter(i->i.groupName.equals(g)&&i.price.signum()==0).findFirst().orElseThrow().id.toString()).collect(java.util.stream.Collectors.joining(","));}
  Map<String,Object> checkout(String key,String type){return new HashMap<>(Map.of("checkoutKey",key,"type",type,"contactName","Test Customer","phone","0901234567","address","25 Võ Văn Ngân, Thủ Đức","paymentMethod","COD","scheduledAt","ASAP"));}
  @Test void publicCatalogAndAnonymousProtection()throws Exception{mvc.perform(get("/shop-api/public/bootstrap")).andExpect(status().isOk()).andExpect(jsonPath("$.products.length()").value(48)).andExpect(jsonPath("$.csrf").exists());mvc.perform(get("/shop-api/cart")).andExpect(status().isUnauthorized());}
@@ -915,7 +915,7 @@ class CommerceTest {
  void invalidCartLineRemainsVisibleAndCheckoutStaysBlocked(String problem)throws Exception{
   Product p=custom(1L);String ids=ingredients();
   CartLine bad=s.cart(Map.of("productId",p.id,"quantity",1,"ingredientIds",ids));
-  Product fixed=s.all(Product.class).stream().filter(x->!x.customizable&&x.storeId.equals(2L)).findFirst().orElseThrow();
+  Product fixed=s.all(Product.class).stream().filter(x->!x.customizable&&x.storeId.equals(2L)&&x.available).findFirst().orElseThrow();
   CartLine good=s.cart(Map.of("productId",fixed.id,"quantity",1,"ingredientIds",""));
   Ingredient ingredient=s.get(Ingredient.class,Long.parseLong(ids.split(",")[0]));
   switch(problem){
@@ -995,5 +995,64 @@ class CommerceTest {
   reset(registrationMail);
   try{registerRequest(body).andExpect(status().isOk());assertThat(otpTransaction(()->s.byEmail(body.get("email").toString()))).isNotNull();}
   finally{otpTransaction(()->{Account a=s.byEmail(body.get("email").toString());if(a!=null)registrationEm.remove(a);return null;});}
+ }
+ @Test void curatedMenuImagesMatchSeededProductsAndExistingAssets(){
+  assertThat(SeedData.MENU_IMAGES).hasSize(48);
+  for(var entry:SeedData.MENU_IMAGES.entrySet()){
+   Product product=s.all(Product.class).stream().filter(p->p.name.equals(entry.getKey())).findFirst().orElseThrow();
+   assertThat(product.image).isEqualTo(entry.getValue());
+   assertThat(product.description).isEqualTo(SeedData.menuDescription(product.category,product.name));
+   assertThat(product.description).isNotBlank();
+   assertThat(getClass().getResource("/static"+product.image)).isNotNull();
+  }
+  assertThat(getClass().getResource("/static"+SeedData.MENU_PLACEHOLDER)).isNotNull();
+  assertThat(s.all(Product.class)).hasSize(48);
+  assertThat(s.publicData().get("products")).asList().hasSize(48);
+  assertThat(s.all(Product.class).stream().filter(p->p.available&&p.image.equals(SeedData.MENU_PLACEHOLDER))).isEmpty();
+  assertThat(s.all(Product.class).stream().map(p->p.image)).doesNotHaveDuplicates();
+ }
+ @Test void vegetarianMenuRejectsMeatEvenWhenCalledDirectly(){
+  Product vegetarian=s.all(Product.class).stream().filter(p->p.name.equals("Burrito Chay")).findFirst().orElseThrow();
+  java.util.function.Function<String,Long> ingredient=name->s.all(Ingredient.class).stream().filter(i->i.name.equals(name)).findFirst().orElseThrow().id;
+  String base=ingredient.apply("Cơm trắng")+","+ingredient.apply("Đậu đen")+","+ingredient.apply("Salsa cà chua");
+  String tofu=ingredient.apply("Đậu hũ chay")+","+base;
+  assertThat(s.quote(vegetarian,tofu).description()).contains("Đậu hũ chay");
+  assertThatThrownBy(()->s.quote(vegetarian,ingredient.apply("Gà nướng")+","+base)).hasMessageContaining("Món chay không dùng thịt");
+  assertThatThrownBy(()->s.quote(vegetarian,tofu+","+ingredient.apply("Thêm thịt"))).hasMessageContaining("Món chay không dùng thịt");
+ }
+ @Test void researchedMenuPricesCaloriesAndStoresAreConsistent(){
+  List<Product>products=s.all(Product.class);
+  assertThat(products).hasSize(48).allSatisfy(p->{
+   assertThat(p.price).isPositive();
+   assertThat(p.stock).isEqualTo(100);
+   assertThat(p.calories).isGreaterThanOrEqualTo(0);
+   assertThat(s.all(Store.class).stream().anyMatch(store->store.id.equals(p.storeId))).isTrue();
+  });
+  Product water=products.stream().filter(p->p.name.equals("Nước suối")).findFirst().orElseThrow();
+  Product cola=products.stream().filter(p->p.name.equals("Cola")).findFirst().orElseThrow();
+  assertThat(water.calories).isZero();
+  assertThat(cola.calories).isEqualTo(139);
+  for(String filling:List.of("Gà nướng","Bò BBQ","Heo xé","Chay","Gà cay","Bò đặc biệt")){
+   Product adult=products.stream().filter(p->p.name.equals("Burrito "+filling)).findFirst().orElseThrow();
+   Product kids=products.stream().filter(p->p.name.equals("Kids "+filling)).findFirst().orElseThrow();
+   assertThat(kids.price).isLessThan(adult.price);
+  }
+ }
+ @Test void menuRecipeAndIncludedProteinPriceAreValidatedAtServiceBoundary(){
+  java.util.function.Function<String,Long> ingredient=name->s.all(Ingredient.class).stream().filter(i->i.name.equals(name)).findFirst().orElseThrow().id;
+  java.util.function.Function<String,Product> product=name->s.all(Product.class).stream().filter(p->p.name.equals(name)).findFirst().orElseThrow();
+  Product beef=product.apply("Burrito Bò BBQ");
+  String rest=ingredient.apply("Cơm trắng")+","+ingredient.apply("Đậu đen")+","+ingredient.apply("Salsa cà chua");
+  assertThat(s.quote(beef,ingredient.apply("Bò BBQ")+","+rest).price()).isEqualByComparingTo(beef.price);
+  assertThat(s.quote(beef,ingredient.apply("Gà nướng")+","+rest).price()).isEqualByComparingTo(beef.price.subtract(new BigDecimal("15000")));
+  Product tacos=product.apply("Tacos Gà nướng");
+  String tacoIngredients=ingredient.apply("Gà nướng")+","+ingredient.apply("Salsa cà chua");
+  assertThat(s.quote(tacos,tacoIngredients).calories()).isEqualTo(tacos.calories+180+25);
+  assertThatThrownBy(()->s.quote(tacos,ingredient.apply("Gà nướng").toString())).hasMessageContaining("SAUCE");
+  Product salad=product.apply("Salad Gà nướng");
+  assertThatThrownBy(()->s.quote(salad,tacoIngredients)).hasMessageContaining("BEANS");
+  Product kids=product.apply("Kids Gà nướng");
+  String kidsIngredients=ingredient.apply("Gà nướng")+","+ingredient.apply("Cơm trắng")+","+ingredient.apply("Salsa cà chua");
+  assertThat(s.quote(kids,kidsIngredients).calories()).isEqualTo(kids.calories+90+105+13);
  }
 }
