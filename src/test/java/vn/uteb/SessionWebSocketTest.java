@@ -15,6 +15,10 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.*;
 import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
+import org.springframework.messaging.simp.SimpMessageType;
+import org.springframework.messaging.simp.broker.SimpleBrokerMessageHandler;
+import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -31,6 +35,7 @@ class SessionWebSocketTest {
     @Autowired ShopService shop;
     @Autowired PlatformTransactionManager transactions;
     @Autowired SimpMessagingTemplate messaging;
+    @Autowired SimpleBrokerMessageHandler broker;
     @Autowired Subscriptions subscriptions;
     @PersistenceContext EntityManager em;
     Account a,b;
@@ -38,9 +43,12 @@ class SessionWebSocketTest {
     static final String OLD="Websocket-test-old-123", NEXT="Websocket-test-new-123";
 
     @TestConfiguration static class EventsConfig {@Bean Subscriptions subscriptions(){return new Subscriptions();}}
+    record Subscription(String email,String sessionId){}
     static class Subscriptions {
-        final BlockingQueue<String> received=new LinkedBlockingQueue<>();
-        @EventListener public void subscribed(SessionSubscribeEvent event){received.add(event.getUser().getName());}
+        final BlockingQueue<Subscription> received=new LinkedBlockingQueue<>();
+        @EventListener public void subscribed(SessionSubscribeEvent event){
+            received.add(new Subscription(event.getUser().getName(),SimpMessageHeaderAccessor.getSessionId(event.getMessage().getHeaders())));
+        }
     }
     @BeforeEach void setup(){new TransactionTemplate(transactions).executeWithoutResult(tx->{a=account();b=account();});}
     Account account(){Account account=new Account();account.email=UUID.randomUUID()+"@example.test";account.name="Socket test";account.verified=true;account.passwordHash=shop.hashPassword(OLD);em.persist(account);return account;}
@@ -66,7 +74,15 @@ class SessionWebSocketTest {
             socket.sendText("CONNECT\naccept-version:1.2\nhost:localhost\n\n\u0000",true).join();
             assertThat(listener.frames.poll(10,TimeUnit.SECONDS)).startsWith("CONNECTED");
             socket.sendText("SUBSCRIBE\nid:events\ndestination:/user/queue/events\n\n\u0000",true).join();
-            assertThat(subscriptions.received.poll(10,TimeUnit.SECONDS)).isEqualTo(account.email);
+            Subscription subscription=subscriptions.received.poll(10,TimeUnit.SECONDS);
+            assertThat(subscription).isNotNull();assertThat(subscription.email()).isEqualTo(account.email);
+            // SessionSubscribeEvent precedes asynchronous broker registration. Wait for the
+            // actual subscription before testing delivery instead of racing the inbound executor.
+            var headers=SimpMessageHeaderAccessor.create(SimpMessageType.MESSAGE);
+            headers.setDestination("/queue/events-user"+subscription.sessionId());
+            var probe=MessageBuilder.createMessage(new byte[0],headers.getMessageHeaders());
+            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(10)).until(()->
+                broker.getSubscriptionRegistry().findSubscriptions(probe).containsKey(subscription.sessionId()));
             return connection;
         }
         public void close(){client.shutdownNow();}
