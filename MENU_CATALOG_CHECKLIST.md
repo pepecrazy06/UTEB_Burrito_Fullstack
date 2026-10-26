@@ -1,8 +1,27 @@
-# Checklist 48 món thực đơn mẫu
+# Checklist thực đơn demo
+
+## Thực đơn chọn lọc sau V8
+
+Theo góp ý của nhóm, **mỗi chi nhánh có cùng 24 món đang bán**: 8 Burrito, 2 Bowl, 2 Tacos, 2 Quesadilla, 2 Salad, 2 Kids, 3 Sides và 3 Drinks. Nhóm có thể phân bố lại món cho từng chi nhánh sau. V8 chỉ ẩn 26 món mẫu không chọn, giữ nguyên bản ghi và ảnh cho lịch sử đơn hàng; 22 món mẫu được chọn được sao sang các chi nhánh còn thiếu. Hai Burrito mới có ảnh riêng, công thức cố định, giá và kcal chỉ là **ước tính demo**.
+
+| Danh mục | Món đang bán tại mỗi chi nhánh |
+|---|---|
+| Burrito | Gà nướng, Bò BBQ, Heo xé, Chay, Gà cay, Bò đặc biệt, Trứng phô mai, Gà guacamole |
+| Bowl | Gà nướng, Bò BBQ |
+| Tacos | Gà nướng, Chay |
+| Quesadilla | Gà nướng, Bò BBQ |
+| Salad | Gà nướng, Chay |
+| Kids | Gà nướng, Bò BBQ |
+| Sides | Chips & Salsa, Chips & Guacamole, Chips & Queso |
+| Drinks | Trà chanh, Nước suối, Cola |
+
+Ảnh của cả 24 món đang bán đã có bản PNG tách nền trong `src/main/resources/static/assets/menu/*-cutout.png`; ảnh gốc V7 được giữ để đối chiếu và bảo vệ lịch sử đơn hàng. Ví dụ: [Burrito Trứng phô mai](src/main/resources/static/assets/menu/burrito-egg-cheese-cutout.png), [Burrito Gà guacamole](src/main/resources/static/assets/menu/burrito-chicken-guacamole-cutout.png). Dữ liệu hai món mới: 89.000đ / 650 kcal và 105.000đ / 780 kcal; cần nhóm xác nhận trước khi dùng làm thông tin dinh dưỡng chính thức. Chạy `sql/Apply-Schema.ps1 -Server 'localhost\SQLEXPRESS' -Database UTE_Burrito` để xem kế hoạch V7–V8 trên máy Đạt; ở máy khác cần thay `-Server` theo SQL instance thực tế. Chỉ chạy với `-Apply` sau khi nhóm kiểm tra diff và dữ liệu SQL Server.
+
+## Danh mục gốc V3–V7: 48 món mẫu
 
 Ảnh: 9 ảnh có sẵn và 39 ảnh mới tạo cho những món từng dùng ảnh chờ. Cả 48 ảnh menu đã được mở rộng thành khung 4:3: 28 món trên đĩa thấy trọn viền đĩa, 20 món trong tô/chén hoặc ly được mở rộng nền bàn ở hai bên. Ảnh mới là **minh họa AI**, chưa phải ảnh món chụp tại cửa hàng. Mô tả, giá và kcal là **đề xuất cho thực đơn demo**, đối chiếu với các nguồn ở dưới; không phải số liệu đo từ món UTEB. Tồn kho và chi nhánh giữ từ dữ liệu mẫu `sql/V3__catalog_seed.sql`; nhóm chưa xác nhận số lượng bán thực tế. Không dùng checklist này làm thực đơn chính thức nếu chưa duyệt.
 
-Mỗi món hiện thuộc **một chi nhánh**. Phân bố mẫu: Võ Văn Ngân 16, Quận 1 16, Bình Thạnh 8, Thủ Đức 8. `stock` là tồn kho theo món; project chưa có tồn kho nguyên liệu hoặc công thức cố định theo từng món.
+Trước V8, mỗi món thuộc **một chi nhánh**. Phân bố mẫu: Võ Văn Ngân 16, Quận 1 16, Bình Thạnh 8, Thủ Đức 8. Bảng dưới ghi dữ liệu gốc trước V8; cột chi nhánh không còn phản ánh toàn bộ nơi bán sau V8. `stock` là tồn kho theo món; project chưa có tồn kho nguyên liệu hoặc công thức cố định theo từng món.
 
 | ID | Tên món | Mô tả đề xuất | Danh mục | Ảnh | Giá đề xuất | kcal nền/ước tính | Kho mẫu | Chi nhánh mẫu | Tự chọn | Nhóm đã chốt dữ liệu |
 |---:|---|---|---|---|---:|---:|---:|---|---|---|
@@ -68,15 +87,15 @@ Mỗi món hiện thuộc **một chi nhánh**. Phân bố mẫu: Võ Văn Ngân
 - Giá và kcal là đề xuất tham khảo đã sửa các điểm vô lý của seed cũ (`Nước suối = 0 kcal`, Kids rẻ hơn món lớn); **chưa đo trên khẩu phần UTEB**. Tất cả món vẫn có tồn kho mẫu 100, không phản ánh kho tại chi nhánh. Không suy ra kho thực tế từ nguồn trên mạng.
 - Bộ nguyên liệu hiện dùng chung cho các món tự chọn: nhân (`Gà nướng`, `Bò BBQ`, `Heo xé`, `Đậu hũ chay`), cơm, đậu, sốt, topping, extra. Builder gợi ý nhân khớp với tên món; `Gà cay` gợi ý sốt cay. Món `Chay` chỉ nhận đậu hũ chay và không nhận phần thêm thịt, kể cả khi gọi API trực tiếp. Chưa có nguyên liệu riêng tên `Gà cay` hoặc `Bò đặc biệt`; nhóm vẫn cần chốt quy tắc chọn nguyên liệu cho từng loại món.
 - Các ảnh AI mô tả món theo tên để nhận diện, không chứng minh thành phần thật, dị ứng hay giá trị dinh dưỡng. Cần đối chiếu ảnh với món bán thực tế trước khi dùng làm ảnh chính thức.
-- V6 đã được áp dụng trên database `UTE_Burrito` vừa tạo của Đạt: 48 ảnh JPG, 0 mô tả cũ, 4 chi nhánh. V7 **chưa áp dụng**; nó thay giá/kcal còn đúng giá trị seed V3 và thay 48 ảnh thực đơn chỉ khi chúng vẫn là ảnh V6, giữ chỉnh sửa thủ công, tồn kho, chi nhánh và lịch sử đơn. Trên database khác phải kiểm tra lịch sử migration trước khi chạy.
+- Trên database `UTE_Burrito` của Đạt đã áp dụng V1–V8: 4 chi nhánh, 24 món đang bán ở mỗi chi nhánh và 24 ảnh PNG tách nền. V7 chỉ thay giá/kcal và ảnh còn đúng dữ liệu mẫu; V8 ẩn món mẫu không chọn và sao món được chọn sang các chi nhánh. Trên database khác phải kiểm tra lịch sử migration trước khi chạy.
 
 ## Đối soát trước khi dùng như thực đơn thật
 
-1. Xác nhận mỗi món có bán tại chi nhánh trong bảng, và điều chỉnh số lượng tồn theo từng chi nhánh. Hiện một món chỉ thuộc một chi nhánh; đây là bố trí demo chứ không phải số liệu vận hành.
+1. Xác nhận món nào thực sự bán tại từng chi nhánh, rồi điều chỉnh tồn kho của từng chi nhánh. Sau V8, cả bốn chi nhánh có cùng 24 món; đây là bố trí demo chứ không phải số liệu vận hành.
 2. Chốt giá bán và phụ phí từ chi phí nguyên liệu của nhóm. Bản đề xuất đã tránh cộng trùng phụ phí của nhân được đặt tên trong món.
 3. Chốt công thức, dị ứng và cách đặt tên món khi khách thay nhân. Đặc biệt kiểm tra `Chay`, `Gà cay`, `Bò đặc biệt` và khẩu phần `Kids`.
 4. Cân phần ăn và lượng đường thực tế rồi tính lại kcal; con số từ món của nhà hàng khác chỉ là chuẩn tham khảo.
-5. Kiểm tra kế hoạch V7 trên SQL Server, đối chiếu giá/kcal và 48 đường dẫn ảnh menu trước và sau khi chạy; chỉ áp dụng sau khi nhóm xem diff. V7 không tự thay stock hoặc storeId.
+5. Trên database khác, kiểm tra kế hoạch V7–V8 và đối chiếu giá/kcal, ảnh, số món theo chi nhánh trước và sau khi chạy; chỉ áp dụng sau khi nhóm xem diff. V7 không tự thay stock hoặc storeId; V8 có thêm sản phẩm mẫu tại các chi nhánh.
 
 ## Bộ prompt ảnh mới
 
