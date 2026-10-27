@@ -34,7 +34,7 @@ try{
                 Check ([Math]::Abs([double](Query $connection 'SELECT latitude FROM dbo.stores WHERE id=2')-10.7745167) -lt 0.0000001) 'District 1 marker is still misplaced.'
                 Check ([Math]::Abs([double](Query $connection 'SELECT longitude FROM dbo.stores WHERE id=3')-106.7064464) -lt 0.0000001) 'Binh Thanh marker is still misplaced.'
                 Check ((Query $connection "SELECT COUNT(*) FROM dbo.stores WHERE id=4 AND address=N'88 Hoàng Diệu 2, phường Linh Chiểu, TP. Thủ Đức'") -eq 1) 'Hoang Dieu 2 address is inconsistent.'
-                Check ((Query $connection 'SELECT COUNT(*) FROM dbo.products') -eq 48) 'Catalog products must be preserved.'
+                Check ((Query $connection 'SELECT COUNT(*) FROM dbo.products') -eq 122) 'Catalog products must be preserved.'
                 $versionSum=Query $connection 'SELECT SUM(version) FROM dbo.stores'
                 & "$PSScriptRoot/Apply-Schema.ps1" -Server $Server -Database $database -Apply
                 Script $connection 'V9__store_coordinates.sql'
