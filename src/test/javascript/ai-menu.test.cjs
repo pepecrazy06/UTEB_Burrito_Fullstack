@@ -25,3 +25,39 @@ test('missing ingredients stop accepting an outdated suggestion',async()=>{
  c.state.data={ingredients:[{id:4,available:false}]};c.state.aiMenu={result:{items:[{storeId:1,productId:1,ingredientIds:[4]}]}};
  await assert.rejects(c.chooseAiMenu(0),/Nguyên liệu vừa thay đổi/);assert.equal(opened,false);
 });
+
+function chatContext(api){
+ const c=context({api,store:()=>({name:'UTEB Võ Văn Ngân'}),FormData:function(form){return {get:()=>form.message};},requireClient:(ok,text)=>{if(!ok)throw Error(text);}});
+ c.aiState().available=true;return c;
+}
+test('chat keeps successful messages and passes recent user context for a follow-up',async()=>{
+ const calls=[];const c=chatContext(async(path,method,body)=>{calls.push(body);return {message:'Các món phù hợp',items:[],criteria:[]};});
+ await c.submitAiMenu({message:'Thèm gà'});await c.submitAiMenu({message:'Không cơm nữa'});
+ assert.deepEqual(Array.from(calls[1].previousMessages),['Thèm gà']);assert.equal(c.aiState().turns.length,2);
+ assert.equal(c.aiState().turns[0].user,'Thèm gà');assert.equal(c.aiState().turns[1].result.message,'Các món phù hợp');
+ const html=c.aiChatTranscript(c.aiState());assert.ok(html.includes('Thèm gà'));assert.ok(html.includes('Không cơm nữa'));
+});
+test('closing the chat during an AI request preserves the eventual response',async()=>{
+ let respond;const c=chatContext(()=>new Promise(resolve=>{respond=resolve;}));
+ const pending=c.submitAiMenu({message:'Thèm bò'});assert.equal(c.aiState().busy,true);
+ c.closeAiChat();respond({message:'Bowl bò',items:[],criteria:[]});await pending;
+ assert.equal(c.aiState().turns[0].result.message,'Bowl bò');assert.equal(c.aiState().busy,false);
+});
+test('changing branch discards a response that belongs to the previous branch',async()=>{
+ let respond;const c=chatContext(()=>new Promise(resolve=>{respond=resolve;}));
+ const pending=c.submitAiMenu({message:'Thèm bò'});c.state.storeId=2;c.aiState();
+ respond({message:'Old branch result',items:[],criteria:[]});await pending;
+ assert.equal(c.aiState().turns.length,0);assert.equal(c.aiState().result,null);assert.equal(c.aiState().storeId,2);
+});
+test('unavailable AI cannot send but does not clear the prepared message',async()=>{
+ let called=false;const c=chatContext(async()=>{called=true;});c.aiState().available=false;c.aiState().draft='Mình ăn chay';
+ await assert.rejects(c.submitAiMenu({message:'Mình ăn chay'}),/chưa sẵn sàng/);
+ assert.equal(called,false);assert.equal(c.aiState().draft,'Mình ăn chay');assert.equal(c.aiState().turns.length,0);
+});
+test('each older recommendation opens its own ingredients rather than the latest response',async()=>{
+ let selected;
+ const c=context({requireClient:(ok,text)=>{if(!ok)throw Error(text);},reloadData:async()=>{},product:id=>({id,storeId:1,available:true,stock:2}),openBuilder:(id,edit,target,ids)=>{selected={id,ids};},calculateBuilder:()=>({price:89000,kcal:370}),toast:()=>{}});
+ c.state.data={ingredients:[{id:4,available:true}]};
+ c.state.aiMenu={storeId:1,turns:[{id:1,result:{items:[{storeId:1,productId:10,ingredientIds:[4],price:89000,calories:370}]}}],result:{items:[{storeId:1,productId:20,ingredientIds:[],price:89000,calories:370}]}};
+ await c.chooseAiMenu(0,1);assert.equal(selected.id,10);assert.deepEqual(Array.from(selected.ids),[4]);
+});

@@ -19,7 +19,9 @@ ollama list
 .\mvnw.cmd spring-boot:run
 ```
 
-5. Mở `http://localhost:8080/#assistant`, hoặc chọn “Gợi ý món với AI” ở thực đơn.
+5. Bấm biểu tượng logo UTEB ở góc dưới bên phải để mở cửa sổ chat, hoặc chọn “Trò chuyện với AI” ở thực đơn. Trang `http://localhost:8080/#assistant` cũng có nút mở cửa sổ.
+
+Cửa sổ dùng phong cách như phần chọn cửa hàng: logo và câu gợi ý ở bên trái, cuộc trò chuyện ở bên phải; điện thoại dùng một cột. Có thể soạn tin nhắn trong lúc AI chưa sẵn sàng. Kết nối được kiểm tra lại khi cửa sổ mở. Đóng/mở giữ lịch sử của phiên trang; đổi chi nhánh bắt đầu lại để tránh gợi ý nhầm cửa hàng. Enter gửi, Shift+Enter xuống dòng.
 
 Mặc định `AI_ENABLED=true`, `OLLAMA_URL=http://127.0.0.1:11434`, `OLLAMA_MODEL=qwen3:4b-instruct`. Không cần chỉnh cấu hình nếu dùng đúng mô hình này. Muốn lưu lựa chọn trên máy, chạy `powershell -ExecutionPolicy RemoteSigned -File .\sql\Save-LocalConfig.ps1 -Section ai`; helper không yêu cầu key.
 
