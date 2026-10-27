@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('all','sql','cloudinary','vnpay')][string]$Section='all',
+    [ValidateSet('all','sql','cloudinary','vnpay','ai')][string]$Section='all',
     [ValidatePattern('^[A-Za-z0-9_]+$')][string]$Database='uteb',
     [string]$SqlServer='localhost:1433',
     [string]$SqlLogin='sa',
@@ -99,6 +99,16 @@ if($Section -eq 'vnpay'){
     $updates['BASE_URL']=$baseUri.GetLeftPart([UriPartial]::Authority)
     $updates['COOKIE_SECURE']='true'
 }
+if($Section -eq 'ai'){
+    $model=Current-Value 'OLLAMA_MODEL'
+    if([string]::IsNullOrWhiteSpace($model)){$model=Saved-Value 'OLLAMA_MODEL'}
+    if([string]::IsNullOrWhiteSpace($model)){$model='qwen3:4b-instruct'}
+    if($model -notmatch '^[A-Za-z0-9._:/-]+$' -or $model -match '(?i)cloud'){throw 'Use a locally downloaded Ollama model.'}
+    $updates['OLLAMA_URL']='http://127.0.0.1:11434'
+    $updates['OLLAMA_MODEL']=$model
+    $updates['AI_ENABLED']='true'
+    if(!(Has-SavedValue 'AI_DAILY_LIMIT')){$updates['AI_DAILY_LIMIT']='1000'}
+}
 # Keep the saved JWT secret stable across restarts and partial updates.
 if(!(Has-SavedValue 'JWT_SECRET')){
     $jwt=Current-Value 'JWT_SECRET'
@@ -114,7 +124,7 @@ if(!(Has-SavedValue 'JWT_SECRET')){
 # Also retain integrations already configured in the terminal where this helper
 # is run, so restarting Maven does not silently disable those integrations.
 foreach($key in @('PORT','BASE_URL','COOKIE_SECURE','MAIL_ENABLED','SMTP_HOST','SMTP_PORT','SMTP_USER','SMTP_PASSWORD','MAIL_FROM',
-        'VNPAY_TMN_CODE','VNPAY_HASH_SECRET')){
+        'VNPAY_TMN_CODE','VNPAY_HASH_SECRET','OLLAMA_URL','OLLAMA_MODEL','AI_ENABLED','AI_DAILY_LIMIT')){
     $value=Current-Value $key
     if(![string]::IsNullOrWhiteSpace($value) -and !$updates.Contains($key)){$updates[$key]=$value}
 }
