@@ -29,6 +29,7 @@ public class OrderCancellationService {
     private void administrator(Account actor,Long storeId){forbidden(shop.has(actor,"ADMIN")||(shop.has(actor,"MANAGER")&&Objects.equals(actor.storeId,storeId)));}
     private void beforeCooking(MealOrder order){require(List.of("NEW","CONFIRMED").contains(order.status),"Chỉ yêu cầu hoặc duyệt hủy trước khi chế biến.");}
     private void paid(MealOrder order){
+        // Historical MoMo orders may still need manual refunds; new checkout only accepts COD/VNPay.
         require("PAID".equals(order.paymentStatus)&&List.of("VNPAY","MOMO").contains(order.paymentMethod)
                 &&order.total!=null&&order.total.signum()>0&&order.transactionRef!=null&&!order.transactionRef.isBlank(),"Đơn chưa có thanh toán trực tuyến thành công để hoàn tiền.");
         if("VNPAY".equals(order.paymentMethod)){

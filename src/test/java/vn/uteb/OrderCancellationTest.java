@@ -28,7 +28,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static vn.uteb.Domain.*;
 
 /** Real commit boundaries, isolated H2 data, mocked notifications; no payment gateway calls. */
-@SpringBootTest(properties={"spring.datasource.url=jdbc:h2:mem:cancellationtest;MODE=MSSQLServer;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=10000", "spring.jpa.hibernate.ddl-auto=create-drop", "uteb.seed=false", "uteb.mail.enabled=false", "uteb.momo.partner=TASK2TEST", "uteb.momo.access=task2-test-access", "uteb.momo.secret=task2-test-signing-key"})
+@SpringBootTest(properties={"spring.datasource.url=jdbc:h2:mem:cancellationtest;MODE=MSSQLServer;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=10000", "spring.jpa.hibernate.ddl-auto=create-drop", "uteb.seed=false", "uteb.mail.enabled=false", "uteb.vnpay.code=TESTCODE", "uteb.vnpay.secret=task2-test-signing-key", "uteb.base-url=https://task2.example.test"})
 @ActiveProfiles("demo") @AutoConfigureMockMvc
 class OrderCancellationTest {
     @Autowired MockMvc mvc;@Autowired ObjectMapper json;@Autowired OrderCancellationService cancellations;@Autowired ShopService shop;
@@ -46,7 +46,8 @@ class OrderCancellationTest {
     });}
     Account account(String roles,Long storeId){Account a=new Account();a.email=UUID.randomUUID()+"@example.test";a.name="Cancellation test";a.roles=roles;a.storeId=storeId;a.verified=true;em.persist(a);return a;}
     MealOrder newOrder(Account owner){
-        MealOrder o=new MealOrder();o.userId=owner.id;o.storeId=store.id;o.code="TEST-"+UUID.randomUUID().toString().substring(0,8);o.checkoutKey=UUID.randomUUID().toString();o.status="NEW";o.paymentMethod="MOMO";o.paymentStatus="PAID";o.transactionRef="MOMO-"+UUID.randomUUID();o.type="PICKUP";o.total=new BigDecimal("100000");o.paymentExpires=LocalDateTime.now().plusMinutes(15);em.persist(o);orderIds.add(o.id);
+        MealOrder o=new MealOrder();o.userId=owner.id;o.storeId=store.id;o.code="TEST-"+UUID.randomUUID().toString().substring(0,8);o.checkoutKey=UUID.randomUUID().toString();o.status="NEW";o.paymentMethod="VNPAY";o.paymentStatus="PAID";o.transactionRef="MOMO-"+UUID.randomUUID();o.type="PICKUP";o.total=new BigDecimal("100000");o.paymentExpires=LocalDateTime.now().plusMinutes(15);em.persist(o);o.transactionRef="14"+o.id;orderIds.add(o.id);
+        PaymentAttempt attempt=new PaymentAttempt();attempt.orderId=o.id;attempt.reference="T"+UUID.randomUUID().toString().replace("-","");attempt.amount=o.total;attempt.state="PAID";attempt.transactionNo=o.transactionRef;attempt.responseCode="00";attempt.transactionStatus="00";attempt.expiresAt=o.paymentExpires;em.persist(attempt);
         OrderLine line=new OrderLine();line.orderId=o.id;line.productId=product.id;line.quantity=2;line.unitPrice=new BigDecimal("50000");line.name="Test meal";em.persist(line);return o;
     }
     @AfterEach void cleanup(){SecurityContextHolder.clearContext();tx().executeWithoutResult(tx->{
@@ -107,7 +108,7 @@ class OrderCancellationTest {
         confirm(admin,id,body).andExpect(status().isBadRequest());assertThat(reload().paymentStatus).isEqualTo("PAID");
     }
     @Test void vnPayRequiresVerifiedAttemptAndMatchingAmount()throws Exception{
-        tx().executeWithoutResult(tx->em.find(MealOrder.class,order.id).paymentMethod="VNPAY");request(customer,order.id).andExpect(status().isBadRequest());
+        tx().executeWithoutResult(tx->em.createQuery("delete from PaymentAttempt where orderId=:id").setParameter("id",order.id).executeUpdate());request(customer,order.id).andExpect(status().isBadRequest());
         tx().executeWithoutResult(tx->{PaymentAttempt p=new PaymentAttempt();p.orderId=order.id;p.reference="ATTEMPT-"+UUID.randomUUID();p.amount=order.total;p.state="PAID";p.responseCode="00";p.transactionStatus="00";p.transactionNo=order.transactionRef;p.expiresAt=LocalDateTime.now().plusMinutes(5);em.persist(p);});
         requested();
     }
@@ -136,17 +137,18 @@ class OrderCancellationTest {
         mvc.perform(put("/api/refunds/"+id).with(user(admin.email)).contentType("application/json").content("{\"status\":\"REFUNDED\",\"evidence\":\"Legacy manual refund proof\"}")).andExpect(status().isOk());
         assertThat(reload().paymentStatus).isEqualTo("REFUNDED");assertThat(stock()).isEqualTo(8);
     }
-    Map<String,Object> momoCallback(){
-        Map<String,Object> fields=new LinkedHashMap<>(Map.of("partnerCode","TASK2TEST","orderId",order.id.toString(),"amount","100000","resultCode","0","transId","123456789"));
-        String raw="accessKey=task2-test-access&amount=100000&extraData=&message=&orderId="+order.id+"&orderInfo=&orderType=&partnerCode=TASK2TEST&payType=&requestId=&responseTime=&resultCode=0&transId=123456789";
-        fields.put("signature",Payments.sign("HmacSHA256","task2-test-signing-key",raw));return fields;
+    Map<String,String> vnpayCallback(){
+        PaymentAttempt attempt=tx().execute(tx->shop.where(PaymentAttempt.class,"orderId",order.id).getFirst());
+        Map<String,String> fields=new TreeMap<>(Map.of("vnp_TmnCode","TESTCODE","vnp_TxnRef",attempt.reference,
+            "vnp_Amount",VnpayService.minorAmount(order.total),"vnp_TransactionNo","123456789","vnp_ResponseCode","00","vnp_TransactionStatus","00"));
+        fields.put("vnp_SecureHash",Payments.sign("HmacSHA512","task2-test-signing-key",Payments.vnRaw(fields)));return fields;
     }
-    @Test void signedMomoPaymentAndDuplicateCallbacksCannotUndoManualRefund()throws Exception{
-        tx().executeWithoutResult(tx->{var o=em.find(MealOrder.class,order.id);o.paymentStatus="PENDING";o.transactionRef="";});
-        payments.momoIpn(momoCallback());assertThat(reload().paymentStatus).isEqualTo("PAID");
-        long id=requested();decide(admin,id,"APPROVED","").andExpect(status().isOk());payments.momoIpn(momoCallback());
+    @Test void signedVnpayPaymentAndDuplicateCallbacksCannotUndoManualRefund()throws Exception{
+        tx().executeWithoutResult(tx->{var o=em.find(MealOrder.class,order.id);o.paymentStatus="PENDING";o.transactionRef="";shop.where(PaymentAttempt.class,"orderId",order.id).getFirst().state="PENDING";});
+        assertThat(payments.vnIpn(vnpayCallback())).containsEntry("RspCode","00");assertThat(reload().paymentStatus).isEqualTo("PAID");
+        long id=requested();decide(admin,id,"APPROVED","").andExpect(status().isOk());payments.vnIpn(vnpayCallback());
         assertThat(reload().status).isEqualTo("CANCELLED");assertThat(reload().paymentStatus).isEqualTo("PAID");
-        confirm(admin,id,evidence()).andExpect(status().isOk());payments.momoIpn(momoCallback());
+        confirm(admin,id,evidence()).andExpect(status().isOk());payments.vnIpn(vnpayCallback());
         assertThat(reload().paymentStatus).isEqualTo("REFUNDED");assertThat(stock()).isEqualTo(10);
     }
     @Test void rollbackDoesNotPersistApprovalStockOrNotifications()throws Exception{

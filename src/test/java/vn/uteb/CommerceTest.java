@@ -49,6 +49,33 @@ class CommerceTest {
  @MockitoBean JavaMailSender registrationMail;
  @jakarta.persistence.PersistenceContext jakarta.persistence.EntityManager registrationEm;
 
+ @Test void defaultStoreLocationsFollowTheirAddresses(){
+  assertThat(s.get(Store.class,1).latitude).isCloseTo(10.8505000,within(0.0000001));
+  assertThat(s.get(Store.class,2).latitude).isCloseTo(10.7745167,within(0.0000001));
+  assertThat(s.get(Store.class,2).longitude).isCloseTo(106.7031722,within(0.0000001));
+  assertThat(s.get(Store.class,3).latitude).isCloseTo(10.8000835,within(0.0000001));
+  assertThat(s.get(Store.class,4).longitude).isCloseTo(106.7650860,within(0.0000001));
+  assertThat(s.get(Store.class,4).address).contains("Linh Chiểu");
+ }
+
+ @Test @WithMockUser(username="admin@uteb.vn",roles="ADMIN")
+ void savedStoreCoordinatesArePublishedToTheLocator()throws Exception{
+  Map<String,Object> body=json.convertValue(s.get(Store.class,1),Map.class);
+  body.put("latitude",10.771);body.put("longitude",106.704);
+  mvc.perform(post("/shop-api/admin/stores").with(csrf()).contentType("application/json").content(json.writeValueAsString(body)))
+   .andExpect(status().isOk()).andExpect(jsonPath("$.latitude").value(10.771)).andExpect(jsonPath("$.longitude").value(106.704));
+  mvc.perform(get("/shop-api/public/bootstrap"))
+   .andExpect(status().isOk()).andExpect(jsonPath("$.stores[?(@.id == 1)].latitude").value(org.hamcrest.Matchers.hasItem(10.771)));
+ }
+ @Test void publicLocatorAssetsAndTilePolicyAreAvailableWithoutLogin()throws Exception{
+  mvc.perform(get("/")).andExpect(status().isOk())
+   .andExpect(header().string("Content-Security-Policy",org.hamcrest.Matchers.containsString("https://tile.openstreetmap.org https://a.tile.openstreetmap.fr")))
+   .andExpect(header().string("Referrer-Policy","strict-origin-when-cross-origin"))
+   .andExpect(content().string(org.hamcrest.Matchers.containsString("/assets/store-locator.js")));
+  mvc.perform(get("/assets/leaflet/leaflet.js")).andExpect(status().isOk());
+  mvc.perform(get("/assets/store-locator.css")).andExpect(status().isOk());
+ }
+
  Map<String,Object> registration(){return new HashMap<>(Map.of("email","new-registration@example.com","name","New Customer","phone","0901234567","password","Register@123"));}
  ResultActions registerRequest(Map<String,Object> body)throws Exception{
   return mvc.perform(post("/shop-api/auth/register").with(csrf()).contentType("application/json").content(json.writeValueAsString(body)));
@@ -913,7 +940,7 @@ class CommerceTest {
  @Test @WithMockUser(username="customer@uteb.vn")void invalidCustomizationStockAndVoucher(){Product p=custom(1L);assertThatThrownBy(()->s.cart(Map.of("productId",p.id,"quantity",0,"ingredientIds",ingredients()))).hasMessageContaining("Số lượng");assertThatThrownBy(()->s.cart(Map.of("productId",p.id,"quantity",1,"ingredientIds",""))).hasMessageContaining("thành phần");s.cart(Map.of("productId",p.id,"quantity",1,"ingredientIds",ingredients()));Map<String,Object>b=checkout("voucher-test-0001","PICKUP");b.put("voucher","BURRITO50");assertThatThrownBy(()->s.preview(b)).hasMessageContaining("điều kiện");}
  @Test @WithMockUser(username="customer@uteb.vn")void reviewEligibilityAndDuplicate(){MealOrder completed=s.all(MealOrder.class).stream().filter(o->o.status.equals("COMPLETED")).findFirst().orElseThrow();OrderLine l=s.where(OrderLine.class,"orderId",completed.id).getFirst();String text="Burrito rất ngon, nguyên liệu tươi và nhân vừa miệng. Tôi sẽ đặt lại lần sau.";Review r=s.review(Map.of("orderLineId",l.id,"stars",5,"text",text));assertThat(r.stars).isEqualTo(5);assertThatThrownBy(()->s.review(Map.of("orderLineId",l.id,"stars",5,"text",text))).hasMessageContaining("đã đánh giá");MealOrder fresh=s.all(MealOrder.class).stream().filter(o->o.status.equals("NEW")).findFirst().orElseThrow();assertThatThrownBy(()->s.review(Map.of("orderLineId",s.where(OrderLine.class,"orderId",fresh.id).getFirst().id,"stars",5,"text",text))).hasMessageContaining("nhận món");}
  @Test @WithMockUser(username="customer@uteb.vn")void rewardVoucherOnlyOnce(){int before=s.me().points;Voucher v=s.redeem("DRINK");assertThat(s.me().points).isEqualTo(before-500);assertThat(v.userId).isEqualTo(s.me().id);assertThat(v.usageLimit).isEqualTo(1);assertThat(s.where(RewardLog.class,"userId",s.me().id)).anyMatch(l->l.points==-500);}
- @Test void forgedPaymentRejected(){assertThat(payments.vnIpn(Map.of("vnp_SecureHash","fake","vnp_TxnRef","1"))).containsEntry("RspCode","97");assertThatThrownBy(()->payments.momoIpn(Map.of("signature","fake"))).hasMessageContaining("cấu hình");}
+ @Test void forgedPaymentRejected(){assertThat(payments.vnIpn(Map.of("vnp_SecureHash","fake","vnp_TxnRef","1"))).containsEntry("RspCode","97");}
  @Test void otpAttemptsExpiryAndSingleUse(){Account a=s.byEmail("customer@uteb.vn");a.otpHash=s.hashPassword("123456");a.otpPurpose="VERIFY";a.otpExpires=java.time.LocalDateTime.now().plusMinutes(5);a.otpAttempts=0;assertThat(s.checkOtp(Map.of("email",a.email,"otp","000000"))).isFalse();assertThat(a.otpAttempts).isEqualTo(1);assertThat(s.checkOtp(Map.of("email",a.email,"otp","123456"))).isTrue();assertThat(s.checkOtp(Map.of("email",a.email,"otp","123456"))).isFalse();a.otpHash=s.hashPassword("123456");a.otpExpires=java.time.LocalDateTime.now().minusSeconds(1);assertThat(s.checkOtp(Map.of("email",a.email,"otp","123456"))).isFalse();}
  @Test @WithMockUser(username="customer@uteb.vn")void paymentExpiryReturnsStockOnce(){Product p=custom(1L);int before=p.stock;s.cart(Map.of("productId",p.id,"quantity",1,"ingredientIds",ingredients()));Map<String,Object>b=checkout("expire-test-order-01","PICKUP");b.put("paymentMethod","VNPAY");MealOrder o=s.checkout(b).getFirst();o.paymentExpires=java.time.LocalDateTime.now().minusMinutes(1);s.expirePayments();assertThat(o.paymentStatus).isEqualTo("EXPIRED");assertThat(p.stock).isEqualTo(before);s.expirePayments();assertThat(p.stock).isEqualTo(before);}
  @Test @WithMockUser(username="customer@uteb.vn")void verifiedIpnAndRepeatedCallback()throws Exception{Product p=custom(1L);s.cart(Map.of("productId",p.id,"quantity",1,"ingredientIds",ingredients()));Map<String,Object>b=checkout("ipn-test-order-0001","PICKUP");b.put("paymentMethod","VNPAY");MealOrder o=s.checkout(b).getFirst();Map<String,String>ipn=new TreeMap<>(Map.of("vnp_TmnCode","TESTCODE","vnp_TxnRef",payments.start(o.id,"127.0.0.1").get("reference").toString(),"vnp_Amount",VnpayService.minorAmount(o.total),"vnp_TransactionNo","140000001","vnp_ResponseCode","00","vnp_TransactionStatus","00"));ipn.put("vnp_SecureHash",Payments.sign("HmacSHA512","test-signing-secret-only",Payments.vnRaw(ipn)));assertThat(payments.vnIpn(ipn)).containsEntry("RspCode","00");assertThat(o.paymentStatus).isEqualTo("PAID");assertThat(payments.vnIpn(ipn)).containsEntry("RspCode","02");}

@@ -1,10 +1,11 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('all','sql','cloudinary')][string]$Section='all',
+    [ValidateSet('all','sql','cloudinary','vnpay')][string]$Section='all',
     [ValidatePattern('^[A-Za-z0-9_]+$')][string]$Database='uteb',
     [string]$SqlServer='localhost:1433',
     [string]$SqlLogin='sa',
-    [string]$ConfigPath
+    [string]$ConfigPath,
+    [string]$PublicBaseUrl
 )
 $ErrorActionPreference='Stop'
 $repoRoot=Split-Path $PSScriptRoot -Parent
@@ -17,6 +18,18 @@ function Current-Value([string]$Name){return [Environment]::GetEnvironmentVariab
 function Has-SavedValue([string]$Name){
     $pattern='^\s*'+[regex]::Escape($Name)+'\s*[=:]\s*\S'
     return @($lines | Where-Object {$_ -match $pattern}).Count -gt 0
+}
+function Saved-Value([string]$Name){
+    $pattern='^\s*'+[regex]::Escape($Name)+'\s*[=:](.*)$'
+    $value=$null
+    foreach($line in $lines){if($line -match $pattern){$value=$Matches[1].TrimStart()}}
+    if($null -eq $value){return $null}
+    return [regex]::Replace($value,'\\(u[0-9a-fA-F]{4}|.)',{
+        param($match)
+        $escape=$match.Groups[1].Value
+        if($escape.StartsWith('u') -and $escape.Length -eq 5){return [string][char][Convert]::ToInt32($escape.Substring(1),16)}
+        switch -CaseSensitive ($escape){'n'{return "`n"};'r'{return "`r"};'t'{return "`t"};'f'{return [string][char]12};default{return $escape}}
+    })
 }
 function Private-Value([string]$Name,[string]$Prompt){
     $value=Current-Value $Name
@@ -64,6 +77,28 @@ if($Section -in @('all','cloudinary')){
     if($updates['CLOUDINARY_KEY'] -notmatch '^\d+$'){throw 'Cloudinary API Key must contain digits only.'}
     $updates['CLOUDINARY_SECRET']=Private-Value 'CLOUDINARY_SECRET' 'Cloudinary API Secret (hidden)'
 }
+if($Section -eq 'vnpay'){
+    $merchant=Current-Value 'VNPAY_TMN_CODE'
+    if([string]::IsNullOrWhiteSpace($merchant)){$merchant=Saved-Value 'VNPAY_TMN_CODE'}
+    if([string]::IsNullOrWhiteSpace($merchant)){$merchant=Read-Host 'VNPay TmnCode (8 letters/digits)'}
+    $merchant=$merchant.Trim()
+    if($merchant -notmatch '^[A-Za-z0-9]{8}$'){throw 'VNPay TmnCode must contain 8 letters/digits.'}
+    $hash=Current-Value 'VNPAY_HASH_SECRET'
+    if([string]::IsNullOrWhiteSpace($hash)){$hash=Saved-Value 'VNPAY_HASH_SECRET'}
+    if([string]::IsNullOrWhiteSpace($hash)){$hash=Private-Value 'VNPAY_HASH_SECRET' 'VNPay HashSecret (hidden)'}
+    if(!$PublicBaseUrl){$PublicBaseUrl=Current-Value 'BASE_URL'}
+    if(!$PublicBaseUrl){$PublicBaseUrl=Saved-Value 'BASE_URL'}
+    if(!$PublicBaseUrl -or !$PublicBaseUrl.StartsWith('https://')){$PublicBaseUrl=Read-Host 'Current HTTPS website/tunnel URL'}
+    $baseUri=$null
+    if(![Uri]::TryCreate($PublicBaseUrl,[UriKind]::Absolute,[ref]$baseUri) -or $baseUri.Scheme -ne 'https' -or
+        $baseUri.UserInfo -or $baseUri.Query -or $baseUri.Fragment -or $baseUri.AbsolutePath -ne '/'){
+        throw 'Use the current HTTPS website/tunnel origin, without a path, query or fragment.'
+    }
+    $updates['VNPAY_TMN_CODE']=$merchant
+    $updates['VNPAY_HASH_SECRET']=$hash
+    $updates['BASE_URL']=$baseUri.GetLeftPart([UriPartial]::Authority)
+    $updates['COOKIE_SECURE']='true'
+}
 # Keep the saved JWT secret stable across restarts and partial updates.
 if(!(Has-SavedValue 'JWT_SECRET')){
     $jwt=Current-Value 'JWT_SECRET'
@@ -79,9 +114,9 @@ if(!(Has-SavedValue 'JWT_SECRET')){
 # Also retain integrations already configured in the terminal where this helper
 # is run, so restarting Maven does not silently disable those integrations.
 foreach($key in @('PORT','BASE_URL','COOKIE_SECURE','MAIL_ENABLED','SMTP_HOST','SMTP_PORT','SMTP_USER','SMTP_PASSWORD','MAIL_FROM',
-        'VNPAY_TMN_CODE','VNPAY_HASH_SECRET','MOMO_PARTNER_CODE','MOMO_ACCESS_KEY','MOMO_SECRET_KEY')){
+        'VNPAY_TMN_CODE','VNPAY_HASH_SECRET')){
     $value=Current-Value $key
-    if(![string]::IsNullOrWhiteSpace($value)){$updates[$key]=$value}
+    if(![string]::IsNullOrWhiteSpace($value) -and !$updates.Contains($key)){$updates[$key]=$value}
 }
 foreach($entry in @(@('BASE_URL','http://localhost:8080'),@('PORT','8080'))){
     if(!$updates.Contains($entry[0]) -and !(Has-SavedValue $entry[0])){$updates[$entry[0]]=$entry[1]}

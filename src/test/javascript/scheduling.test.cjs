@@ -6,6 +6,7 @@ const vm=require('node:vm');
 const directory=path.resolve(__dirname,'../../main/resources/static');
 const helpers=fs.readFileSync(path.join(directory,'assets/scheduling.js'),'utf8');
 const app=fs.readFileSync(path.join(directory,'app.js'),'utf8');
+const paymentHelpers=fs.readFileSync(path.join(directory,'assets/vnpay.js'),'utf8');
 const now=Date.parse('2026-10-25T01:00:00Z');
 class FixedDate extends Date{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}}
 function environment(){
@@ -13,15 +14,17 @@ function environment(){
  const elements=Object.fromEntries(Object.entries(values).map(([name,value])=>[name,{value,type:'text',parentElement:{hidden:false},setAttribute(){}}]));
  const form={elements,dataset:{},getAttribute(){return 'checkout-form';}};
  const hours={innerHTML:''},error={textContent:'',hidden:true},preview={innerHTML:''},delivery={hidden:false},calls=[];
- const state={user:{id:1},storeId:10,data:{stores:[{id:10,name:'Chi nhánh A',hours:'10:00–22:00'},{id:20,name:'Chi nhánh B',hours:'12:00–21:00'}]},cart:[{line:{storeId:10}}],checkoutKey:'test-checkout-key-0001'};
+ const state={user:{id:1},storeId:10,data:{vnpayConfigured:true,stores:[{id:10,name:'Chi nhánh A',hours:'10:00–22:00'},{id:20,name:'Chi nhánh B',hours:'12:00–21:00'}]},cart:[{line:{storeId:10}}],checkoutKey:'test-checkout-key-0001'};
  const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const context=vm.createContext({state,Date:FixedDate,Intl,esc:escape,money:String,location:{hash:'#checkout'},
   document:{querySelector(selector){return {'#checkout-form':form,'#checkout-hours':hours,'#checkout-error':error,'#checkout-preview':preview,'#delivery-fields':delivery}[selector]||null;},addEventListener(){}},
   formData(f){return Object.fromEntries(Object.entries(f.elements).filter(([,input])=>!input.disabled).map(([name,input])=>[name,input.value]));},
   async api(url,method,body){calls.push({url,method,body});return {parts:[{store:state.data.stores[0],subtotal:100000,discount:0,deliveryFee:0}],total:100000};},
   async refreshCart(){calls.push('refreshCart');},async render(){calls.push('render');},async launchPayment(){calls.push('launchPayment');},toast(){},
+  requireClient(ok,message){if(!ok)throw Error(message);},
  });
  vm.runInContext(helpers,context);
+ vm.runInContext(paymentHelpers.slice(paymentHelpers.indexOf('function validateCheckoutPayment('),paymentHelpers.indexOf('async function launchPayment(')),context);
  vm.runInContext(app.slice(app.indexOf('async function updateCheckoutPreview()'),app.indexOf('function loginRequired()')),context);
  return {context,state,form,hours,error,preview,delivery,calls};
 }

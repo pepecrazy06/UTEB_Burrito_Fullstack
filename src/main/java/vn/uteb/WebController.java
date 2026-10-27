@@ -40,7 +40,7 @@ public class WebController {
  @PutMapping("/orders/{id}/status")void status(@PathVariable long id,@RequestBody Map<String,Object>b){s.status(id,b);}
  @PutMapping("/orders/{id}/shipper")void assign(@PathVariable long id,@RequestBody Map<String,Object>b){s.assign(id,number(b,"shipperId"));}
  @PostMapping("/orders/{id}/payment")Map<String,Object>pay(@PathVariable long id,HttpServletRequest req)throws Exception{return payments.start(id,req.getRemoteAddr());}
- @PostMapping("/orders/{id}/simulate")void simulate(@PathVariable long id,@RequestBody Map<String,Object>b){s.simulate(id,Boolean.parseBoolean(str(b,"success")));}
+ @PostMapping("/orders/{id}/simulate")void simulate(@PathVariable long id){require(false,"Hệ thống chỉ xác nhận thanh toán qua VNPay, không hỗ trợ giả lập.");}
  @PostMapping("/orders/{id}/cancellation")OrderCancellation cancelRequest(@PathVariable long id,@RequestBody Map<String,Object>b){return cancellations.request(id,b);}
  @GetMapping("/orders/{id}/cancellation")Map<String,Object> cancelState(@PathVariable long id){return cancellations.read(id);}
  @GetMapping("/admin/cancellations")List<Map<String,Object>> cancelList(@RequestParam(required=false)String status){return cancellations.list(status);}
@@ -71,7 +71,6 @@ public class WebController {
 @RestController class CallbackController {
  final Payments p;CallbackController(Payments p){this.p=p;}
  @GetMapping("/payments/vnpay/ipn")Map<String,String>vn(@RequestParam org.springframework.util.MultiValueMap<String,String>b){try{return p.vnIpn(VnpayService.singleValues(b));}catch(Exception e){org.slf4j.LoggerFactory.getLogger(CallbackController.class).warn("VNPay IPN failed: {}",e.getClass().getSimpleName());return VnpayService.reply("99","Unable to update payment");}}
- @PostMapping("/payments/momo/ipn")ResponseEntity<Void>momo(@RequestBody Map<String,Object>b){p.momoIpn(b);return ResponseEntity.noContent().build();}
 }
 @RestControllerAdvice class Errors {
  @ExceptionHandler(ResponseStatusException.class)ResponseEntity<?>status(ResponseStatusException e){return ResponseEntity.status(e.getStatusCode()).body(Map.of("message",Objects.requireNonNullElse(e.getReason(),"Yêu cầu không hợp lệ.")));}

@@ -1,0 +1,76 @@
+#modal.store-locator-dialog { width: min(1280px, 95vw); max-width: none; height: min(790px, 90dvh); max-height: 90dvh; padding: 0; border: 0; border-radius: 22px; overflow: hidden; }
+#modal.store-locator-dialog::backdrop { background: rgb(0 0 0 / 38%); backdrop-filter: blur(2px); }
+.store-locator-dialog > .modal-close { position: absolute; top: 20px; right: 20px; float: none; width: 44px; height: 44px; font-size: 34px; z-index: 1100; box-shadow: 0 3px 15px #0002; }
+.store-locator-dialog #modal-content { height: 100%; }
+.store-locator-page { max-width: 1440px; margin: 30px auto 64px; padding: 0 24px; }
+.store-locator-page .store-locator { height: min(780px, 82dvh); min-height: 580px; border: 1px solid var(--line); border-radius: 20px; overflow: hidden; }
+.store-locator { display: grid; grid-template-columns: minmax(360px, 40%) 1fr; height: 100%; background: #fff; color: #451400; }
+.locator-sidebar { min-height: 0; padding: 28px 30px 18px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #cbbcb3 #fff; }
+.locator-heading { display: flex; align-items: center; gap: 13px; margin-bottom: 24px; }
+.locator-heading img { width: 64px; height: 64px; object-fit: contain; }
+.locator-eyebrow { display: block; font-size: 10px; font-weight: 800; letter-spacing: 2px; margin-bottom: 3px; }
+.locator-heading h2 { font-size: 26px; font-weight: 800; margin: 0; }
+.locator-methods { display: flex; padding: 4px; border-radius: 40px; box-shadow: 0 3px 18px #45140020; border: 1px solid #eee7e2; }
+.locator-methods button { display: flex; flex: 1; gap: 8px; align-items: center; justify-content: center; min-height: 47px; padding: 10px; border: 0; border-radius: 32px; background: #fff; color: #451400; font-size: 14px; font-weight: 800; }
+.locator-methods button.active { background: #451400; color: #fff; }
+.locator-methods svg, .locator-nearby svg { width: 23px; height: 23px; flex-shrink: 0; }
+.locator-intro { font-size: 14px; color: #786960; margin: 24px 0 16px; }
+.locator-search { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #b7a59a; padding-bottom: 9px; }
+.locator-search:focus-within { border-color: #451400; box-shadow: 0 1px #451400; }
+.locator-search input { width: 100%; min-width: 0; background: #fff; border: 0; outline: 0; color: #451400; font-size: 16px; }
+.locator-search input::placeholder { color: #897970; }
+.locator-search svg { width: 23px; height: 23px; color: #9b6a15; flex-shrink: 0; }
+.locator-nearby { display: inline-flex; align-items: center; gap: 7px; margin: 13px 0 22px; padding: 0; border: 0; background: #fff; color: #451400; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
+.locator-nearby:disabled { opacity: .55; }
+.locator-results-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.locator-results-heading h3 { margin: 0; font-size: 17px; font-weight: 800; }
+.locator-count { font-size: 12px; color: #786960; white-space: nowrap; }
+.locator-card { padding: 20px 0; border-bottom: 1px solid #e7ded8; border-left: 3px solid transparent; padding-left: 12px; margin-left: -15px; }
+.locator-card.is-selected, .locator-card.is-focused { border-left-color: #451400; }
+.locator-card-title { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.locator-store-name { padding: 0; border: 0; background: transparent; text-align: left; color: #451400; font-size: 17px; font-weight: 800; line-height: 1.4; }
+.locator-store-name:hover { text-decoration: underline; }
+.locator-selected-label { display: inline-block; margin-top: 7px; font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
+.locator-distance { color: #786960; font-size: 12px; white-space: nowrap; }
+.locator-address { color: #786960; font-size: 14px; line-height: 1.6; margin: 8px 0 4px; }
+.locator-hours { color: #786960; font-size: 12px; line-height: 1.5; margin: 4px 0; }
+.locator-card-actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 13px; }
+.locator-card-actions .btn { font-size: 12px; padding: 9px 14px; }
+.locator-card-actions a { font-size: 12px; font-weight: 700; color: #451400; text-underline-offset: 3px; }
+.locator-location-status, .locator-empty p { font-size: 13px; color: #786960; line-height: 1.6; }
+.locator-empty { padding: 32px 0; }
+.locator-empty h3 { font-size: 18px; }
+.locator-map-panel { position: relative; min-height: 0; background: #eeeae3; }
+.locator-map { height: 100%; min-height: 300px; width: 100%; z-index: 0; }
+.locator-map-caption { position: absolute; top: 20px; left: 20px; display: flex; align-items: center; gap: 9px; max-width: calc(100% - 100px); border-radius: 8px; padding: 8px 14px 8px 8px; background: #fff; box-shadow: 0 2px 12px #0002; font-size: 12px; font-weight: 700; pointer-events: none; z-index: 500; }
+.locator-map-caption img { object-fit: contain; }
+.locator-map-fit { position: absolute; right: 11px; bottom: 101px; z-index: 500; width: 34px; height: 34px; background: #fff; color: #451400; border: 2px solid #0003; border-radius: 5px; padding: 4px; }
+.locator-map-fit svg { width: 22px; height: 22px; }
+.locator-map-status { position: absolute; bottom: 28px; left: 16px; right: 62px; z-index: 500; margin: 0; background: #fff; padding: 10px 13px; border-radius: 6px; font-size: 12px; box-shadow: 0 2px 12px #0002; }
+.locator-map .leaflet-control-attribution { font-size: 10px; }
+.uteb-map-marker { background: transparent; border: 0; }
+.uteb-map-pin { position: relative; display: block; width: 52px; height: 52px; border: 3px solid #451400; border-radius: 50%; background: #fff; box-shadow: 0 3px 8px #0004; }
+.uteb-map-pin::after { content: ''; position: absolute; bottom: -10px; left: 17px; border-top: 10px solid #451400; border-left: 6px solid transparent; border-right: 6px solid transparent; }
+.uteb-map-pin img { display: block; width: 100%; height: 100%; object-fit: contain; border-radius: 50%; }
+.uteb-map-pin.is-selected { outline: 5px solid #45140026; }
+.locator-popup { color: #451400; min-width: 180px; }
+.locator-popup strong { font-size: 15px; }
+.locator-popup p { margin: 8px 0 !important; }
+.locator-popup span { display: block; font-size: 12px; }
+.locator-popup .btn { display: block; margin-top: 12px; width: 100%; color: #fff; font-size: 12px; }
+.locator-store-name:focus-visible, .locator-methods button:focus-visible, .locator-nearby:focus-visible, .locator-map-fit:focus-visible { outline: 3px solid #b88a46; outline-offset: 3px; }
+@media (max-width: 760px) {
+  #modal.store-locator-dialog { height: 94dvh; max-height: 94dvh; width: 96vw; border-radius: 15px; }
+  .store-locator { display: flex; flex-direction: column; }
+  .locator-sidebar { order: 2; flex: 1; padding: 20px 22px; }
+  .locator-map-panel { flex: 0 0 27%; min-height: 170px; }
+  .locator-map { min-height: 0; }
+  .locator-heading { margin-bottom: 16px; }
+  .locator-heading img { width: 48px; height: 48px; }
+  .locator-heading h2 { font-size: 23px; }
+  .locator-intro { margin: 14px 0 12px; font-size: 12px; }
+  .locator-map-caption { top: 12px; left: 12px; font-size: 10px; padding: 6px 10px 6px 6px; }
+  .store-locator-dialog > .modal-close { top: 12px; right: 12px; width: 36px; height: 36px; font-size: 29px; }
+  .store-locator-page { padding: 0 12px; margin-top: 18px; }
+  .store-locator-page .store-locator { height: 85dvh; min-height: 650px; }
+}
