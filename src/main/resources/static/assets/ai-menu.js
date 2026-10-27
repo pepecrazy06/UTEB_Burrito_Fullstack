@@ -1,6 +1,5 @@
 'use strict';
 const aiMenuExamples=['Gà dưới 600 kcal, không cay','Thèm bò, tối đa 100.000đ','Ăn chay, ưu tiên ít calo','Bowl không cơm, không đậu'];
-function aiMenuInvite(){return `<aside class="ai-menu-invite"><img src="/assets/uteb-logo.png" alt="" width="48" height="48"><div><strong>Chưa biết ăn gì?</strong><p>Nói khẩu vị, mức calo hoặc ngân sách. Trợ lý UTEB sẽ tìm món hợp gu bạn.</p></div><button type="button" class="btn btn-outline-primary" data-action="ai-open">Trò chuyện với AI</button></aside>`;}
 function aiState(){
  const a=state.aiMenu||={messages:[],turns:[],result:null,draft:'',storeId:state.storeId,busy:false,request:0,nextTurn:0,available:null};
  a.turns||=[];a.nextTurn||=0;if(a.storeId===undefined)a.storeId=state.storeId;
@@ -16,7 +15,8 @@ function aiChatVisible(){return !!aiChatDialog()?.open;}
 async function openAiChat(){
  requireClient(!!state.data,'Thực đơn đang được tải. Bạn hãy thử lại sau một chút.');
  const dialog=aiChatDialog();aiState();if(!dialog)return;
- dialog.innerHTML=aiChatMarkup();if(!dialog.open)dialog.showModal();
+ dialog.innerHTML=aiChatMarkup();
+ if(!dialog.open){document.body.style.setProperty('--ai-chat-scrollbar-gap',Math.max(0,window.innerWidth-document.documentElement.clientWidth)+'px');document.body.style.setProperty('--ai-chat-base-padding',window.getComputedStyle(document.body).paddingRight);dialog.showModal();}
  document.querySelector('#ai-assistant-launcher')?.setAttribute('aria-expanded','true');
  paintAiChat(true);document.querySelector('#ai-menu-message')?.focus();clearInterval(aiStatusTimer);
  aiStatusTimer=setInterval(()=>{if(aiChatVisible())void checkAiMenuStatus();else clearInterval(aiStatusTimer);},8000);
@@ -24,7 +24,7 @@ async function openAiChat(){
 }
 function closeAiChat(){
  if(typeof document==='undefined')return;
- const dialog=aiChatDialog();if(dialog?.open)dialog.close();clearInterval(aiStatusTimer);aiStatusTimer=null;
+ const dialog=aiChatDialog();if(dialog?.open)dialog.close();document.body.style.removeProperty('--ai-chat-scrollbar-gap');document.body.style.removeProperty('--ai-chat-base-padding');clearInterval(aiStatusTimer);aiStatusTimer=null;
  const launcher=document.querySelector('#ai-assistant-launcher');launcher?.setAttribute('aria-expanded','false');launcher?.focus();
 }
 async function checkAiMenuStatus(){

@@ -19,7 +19,7 @@ ollama list
 .\mvnw.cmd spring-boot:run
 ```
 
-5. Bấm biểu tượng logo UTEB ở góc dưới bên phải để mở cửa sổ chat, hoặc chọn “Trò chuyện với AI” ở thực đơn. Trang `http://localhost:8080/#assistant` cũng có nút mở cửa sổ.
+5. Bấm biểu tượng logo UTEB ở góc dưới bên phải để mở cửa sổ chat. Trang `http://localhost:8080/#assistant` cũng có nút mở cửa sổ. Trợ lý không chèn khối nội dung vào thực đơn và không thay đổi bố cục các trang cũ.
 
 Cửa sổ dùng phong cách như phần chọn cửa hàng: logo và câu gợi ý ở bên trái, cuộc trò chuyện ở bên phải; điện thoại dùng một cột. Có thể soạn tin nhắn trong lúc AI chưa sẵn sàng. Kết nối được kiểm tra lại khi cửa sổ mở. Đóng/mở giữ lịch sử của phiên trang; đổi chi nhánh bắt đầu lại để tránh gợi ý nhầm cửa hàng. Enter gửi, Shift+Enter xuống dòng.
 
