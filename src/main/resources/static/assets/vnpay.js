@@ -1,13 +1,23 @@
 'use strict';
 
+function checkoutPaymentField() {
+  return select('paymentMethod', 'Phương thức thanh toán', [
+    ['COD', 'COD — trả khi nhận món'], ['VNPAY', 'VNPay Sandbox']
+  ], 'COD') + (state.data.vnpayConfigured ? '' :
+    '<p class="muted small" role="status">VNPay hiện chưa sẵn sàng. Bạn có thể chọn COD hoặc thử lại sau.</p>');
+}
+
+function validateCheckoutPayment(method) {
+  requireClient(method === 'COD' || method === 'VNPAY', 'Phương thức thanh toán không hợp lệ.');
+  if (method === 'VNPAY') requireClient(state.data.vnpayConfigured,
+    'VNPay hiện chưa sẵn sàng. Vui lòng chọn COD hoặc thử lại sau.');
+}
+
 async function launchPayment(id) {
   const payment = await api('/orders/' + id + '/payment', 'POST', {});
-  if (payment.simulation) {
-    showModal(`<h2 class="h4 fw-bold">Thanh toán giả lập local</h2><p>Thao tác này phục vụ demo, không chuyển tiền thật.</p><div class="inline-actions"><button class="btn btn-primary" data-action="simulate" data-id="${id}" data-value="true">Giả lập thành công</button><button class="btn btn-outline-primary" data-action="simulate" data-id="${id}" data-value="false">Giả lập thất bại</button></div>`);
-    return;
-  }
+  requireClient(payment.simulation !== true, 'Hệ thống không hỗ trợ thanh toán giả lập.');
   const target = new URL(payment.url);
-  requireClient(target.protocol === 'https:' && ['sandbox.vnpayment.vn', 'test-payment.momo.vn'].includes(target.hostname)
+  requireClient(target.protocol === 'https:' && target.hostname === 'sandbox.vnpayment.vn'
     && !target.username && !target.password, 'Địa chỉ thanh toán không hợp lệ.');
   location.assign(target.href);
 }

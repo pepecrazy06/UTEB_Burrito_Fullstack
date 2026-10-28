@@ -80,9 +80,9 @@ class ScheduledCheckoutTest {
     }
     @ParameterizedTest @ValueSource(strings={"2026-10-26T09:59","2026-10-26T22:00","2026-10-26T22:01","2026-10-24T12:00","2026-10-25T08:30","2026-11-01T08:00","invalid","2026-10-26T12:00Z"})
     void invalidDirectApiRequestHasNoSideEffects(String time)throws Exception{checkout("/api",body(time)).andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").isNotEmpty());untouched();}
-    @ParameterizedTest @ValueSource(strings={"COD","MOMO","VNPAY"})
+    @ParameterizedTest @ValueSource(strings={"COD","VNPAY"})
     void invalidScheduleNeverStartsAnyPaymentMethod(String method)throws Exception{var body=body("2026-10-26T23:00");body.put("paymentMethod",method);checkout("/shop-api",body).andExpect(status().isBadRequest());untouched();}
-    @ParameterizedTest @ValueSource(strings={"COD","MOMO","VNPAY"})
+    @ParameterizedTest @ValueSource(strings={"COD","VNPAY"})
     void validSchedulePreservesPaymentMethod(String method)throws Exception{var body=body("2026-10-26T12:00");body.put("paymentMethod",method);checkout("/api",body).andExpect(status().isOk()).andExpect(jsonPath("$[0].paymentMethod").value(method)).andExpect(jsonPath("$[0].paymentStatus").value(method.equals("COD")?"UNPAID":"PENDING"));}
     @Test void previewChecksHoursAndCanBeRetriedWithoutLosingCart()throws Exception{
         preview(body("2026-10-26T09:00")).andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("10:00–22:00")));untouched();

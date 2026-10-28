@@ -1,5 +1,6 @@
 'use strict';
 const cancellationLabels={REQUESTED:'Chờ duyệt hủy',APPROVED:'Đã duyệt hủy · Chờ hoàn tiền',REJECTED:'Đã từ chối hủy',REFUNDED:'Đã xác nhận hoàn tiền'};
+// Keep refund access for historical online orders; checkout no longer offers MoMo.
 function canRequestCancellation(order){
  return state.user?.id===order.userId&&['NEW','CONFIRMED'].includes(order.status)&&order.paymentStatus==='PAID'
   &&['VNPAY','MOMO'].includes(order.paymentMethod)&&!order.cancellationStatus;

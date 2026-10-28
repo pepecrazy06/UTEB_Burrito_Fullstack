@@ -136,6 +136,22 @@ class LocalConfigurationTest {
         assertThat(properties.getProperty("custom.note")).isEqualTo("keep-note");
     }
     @Test @EnabledOnOs(OS.WINDOWS)
+    void vnpayCanBeSavedSeparatelyAndReusedWhenTunnelChanges()throws Exception{
+        Path file=saveSample();
+        runHelper(file,"vnpay",Map.of("VNPAY_TMN_CODE","TESTCODE","VNPAY_HASH_SECRET",CLOUD_SECRET+"-vnpay",
+            "BASE_URL","https://first.example.test/"),true);
+        Properties first=read(file);
+        assertThat(first.getProperty("DB_PASSWORD")).isEqualTo(PASSWORD);
+        assertThat(first.getProperty("CLOUDINARY_SECRET")).isEqualTo(CLOUD_SECRET);
+        assertThat(first.getProperty("VNPAY_TMN_CODE")).isEqualTo("TESTCODE");
+        assertThat(first.getProperty("VNPAY_HASH_SECRET")).isEqualTo(CLOUD_SECRET+"-vnpay");
+        assertThat(first.getProperty("BASE_URL")).isEqualTo("https://first.example.test");
+        assertThat(first.getProperty("COOKIE_SECURE")).isEqualTo("true");
+        runHelper(file,"vnpay",Map.of("BASE_URL","https://second.example.test/"),true);
+        assertThat(read(file).getProperty("VNPAY_HASH_SECRET")).isEqualTo(CLOUD_SECRET+"-vnpay");
+        assertThat(read(file).getProperty("BASE_URL")).isEqualTo("https://second.example.test");
+    }
+    @Test @EnabledOnOs(OS.WINDOWS)
     void invalidUpdateLeavesPreviouslySavedCredentialsUntouched()throws Exception{
         Path file=saveSample();byte[] before=Files.readAllBytes(file);
         runHelper(file,"cloudinary",Map.of("CLOUDINARY_CLOUD","https://wrong.example","CLOUDINARY_KEY","123","CLOUDINARY_SECRET",CLOUD_SECRET),false);
