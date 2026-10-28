@@ -316,7 +316,8 @@ class CommerceTest {
   assertThat(code).matches("[0-9]{6}");assertThat(message.getTo()).containsExactly(email);
   assertThat(message.getFrom()).isNotBlank();
   assertThat(message.getSubject()).contains(purpose.equals("VERIFY")?"xác thực tài khoản":"đặt lại mật khẩu");
-  assertThat(message.getText()).contains("5 phút");
+  assertThat(message.getText()).contains("Chào bạn,", "Bạn đã yêu cầu "+(purpose.equals("VERIFY")?"xác thực tài khoản":"đặt lại mật khẩu"),
+   "Mã OTP của bạn:\n\n"+code, "5 phút", "chỉ dùng một lần", "Nếu không phải bạn yêu cầu", "UTEB Burrito Kitchen");
   assertThat(a.otpHash).startsWith("$2").isNotEqualTo(code);
   assertThat(new BCryptPasswordEncoder().matches(code,a.otpHash)).isTrue();
   assertThat(a.otpPurpose).isEqualTo(purpose);assertThat(a.otpExpires).isEqualTo(a.otpSent.plusMinutes(5));
