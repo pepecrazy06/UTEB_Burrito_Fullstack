@@ -7,7 +7,7 @@ import java.time.*;
 public class Domain {
  @MappedSuperclass public static class Base { @Id @GeneratedValue(strategy=GenerationType.IDENTITY) public Long id; @Version @JsonIgnore public long version; }
  @Entity(name="Account") @Table(name="accounts",uniqueConstraints=@UniqueConstraint(columnNames="email")) public static class Account extends Base {
-  @Column(nullable=false,length=160) public String email; @Column(nullable=false) public String name; public String phone="";
+  @Column(nullable=false,length=160) public String email; @Column(nullable=false) public String name; public String phone=""; public LocalDate birthDate;
   @JsonIgnore public String passwordHash; public String roles="CUSTOMER"; public Long storeId;
   public boolean active=true, verified=false; public int points=0; @JsonIgnore public int tokenVersion=0;
   @JsonIgnore public String otpHash,otpPurpose; @JsonIgnore public LocalDateTime otpExpires,otpSent; @JsonIgnore public int otpAttempts;
@@ -27,10 +27,20 @@ public class Domain {
  @Entity(name="Address") @Table(name="addresses") public static class Address extends Base { public Long userId; public String label,recipient,phone; @Column(length=500) public String detail; public boolean defaultAddress; }
  @Entity(name="CartLine") @Table(name="cart_lines") public static class CartLine extends Base { public Long userId,productId,storeId; public int quantity; @Column(length=2000) public String ingredientIds=""; @Column(length=300) public String note=""; }
  @Entity(name="MealOrder") @Table(name="meal_orders",uniqueConstraints=@UniqueConstraint(columnNames={"userId","checkoutKey","storeId"})) public static class MealOrder extends Base {
+  @Transient public String cancellationStatus;
   public Long userId,storeId,shipperId; public String code,groupCode,checkoutKey,type,status="NEW",paymentMethod,paymentStatus="UNPAID",transactionRef="",contactName,phone;
   @Column(length=1500) public String address,note; public String scheduledAt="ASAP",voucherCode="";
   public BigDecimal subtotal=BigDecimal.ZERO,discount=BigDecimal.ZERO,deliveryFee=BigDecimal.ZERO,total=BigDecimal.ZERO,commissionRate=BigDecimal.ZERO;
   public LocalDateTime createdAt=LocalDateTime.now(),updatedAt=LocalDateTime.now(),paymentExpires; public boolean pointsAwarded=false;
+ }
+ @Entity(name="PaymentAttempt") @Table(name="payment_attempts",uniqueConstraints=@UniqueConstraint(columnNames="reference")) public static class PaymentAttempt extends Base {
+  @Column(nullable=false) public Long orderId;
+  @Column(nullable=false,length=64) public String reference;
+  @Column(nullable=false,precision=38,scale=2) public BigDecimal amount;
+  @Column(nullable=false,length=32) public String state="PENDING";
+  public String transactionNo="";
+  @Column(length=2) public String responseCode="",transactionStatus="";
+  @Column(nullable=false) public LocalDateTime createdAt=LocalDateTime.now(),expiresAt;
  }
  @Entity(name="OrderLine") @Table(name="order_lines") public static class OrderLine extends Base {
   public Long orderId,productId; public String name,image; @Column(length=2000) public String customization; public int quantity,calories; public BigDecimal unitPrice;
@@ -50,6 +60,22 @@ public class Domain {
  @Entity(name="GroupLine") @Table(name="group_lines") public static class GroupLine extends Base { public Long groupId,userId,productId; public String memberName,ingredientIds=""; public int quantity=1; }
  @Entity(name="CateringRequest") @Table(name="catering_requests") public static class CateringRequest extends Base { public Long userId,storeId; public String packageName,eventAt,contactName,phone,address,status="NEW"; public int people; public BigDecimal quotedTotal; public String note=""; }
  @Entity(name="RefundRequest") @Table(name="refund_requests",uniqueConstraints=@UniqueConstraint(columnNames="orderId")) public static class RefundRequest extends Base { public Long userId,orderId,storeId; @Column(length=2000) public String reason; public String status="REQUESTED",evidence="",reply=""; public BigDecimal amount; public LocalDateTime createdAt=LocalDateTime.now(); }
+ @Entity(name="OrderCancellation") @Table(name="order_cancellations",uniqueConstraints={@UniqueConstraint(columnNames="orderId"),@UniqueConstraint(columnNames="refundReference")})
+ public static class OrderCancellation extends Base {
+  @Column(nullable=false) public Long orderId,userId,storeId;
+  @Column(nullable=false,length=32) public String status="REQUESTED";
+  @org.hibernate.annotations.Nationalized @Column(nullable=false,length=2000) public String reason;
+  @Column(nullable=false,precision=38,scale=2) public BigDecimal amount;
+  @Column(precision=38,scale=2) public BigDecimal confirmedAmount;
+  @Column(nullable=false,length=32) public String paymentMethod;
+  @org.hibernate.annotations.Nationalized @Column(nullable=false,length=255) public String paymentReference;
+  @org.hibernate.annotations.Nationalized @Column(length=1000) public String decisionNote,refundNote;
+  @org.hibernate.annotations.Nationalized @Column(length=120) public String refundReference;
+  @org.hibernate.annotations.Nationalized @Column(length=255) public String evidence;
+  public Long decidedBy,refundedBy;
+  @Column(nullable=false) public LocalDateTime createdAt=LocalDateTime.now();
+  public LocalDateTime decidedAt,refundedAt;
+ }
  @Entity(name="ShopApplication") @Table(name="shop_applications") public static class ShopApplication extends Base { public Long userId; public String name,address,phone,status="PENDING",reply=""; }
  @Entity(name="MediaRecord") @Table(name="media_records") public static class MediaRecord extends Base { public Long userId; public String url,publicId,kind; public LocalDateTime createdAt=LocalDateTime.now(); }
  @Entity(name="AuditRecord") @Table(name="audit_records") public static class AuditRecord extends Base { public Long actorId; public String action; @Column(length=2000) public String detail; public LocalDateTime createdAt=LocalDateTime.now(); }

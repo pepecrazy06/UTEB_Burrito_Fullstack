@@ -39,14 +39,26 @@ public class SecurityConfig {
     chain.doFilter(req,res);
    }},UsernamePasswordAuthenticationFilter.class).build();
  }
- @Bean @Order(2) SecurityFilterChain site(HttpSecurity h)throws Exception {
+ @Bean @Order(2) SecurityFilterChain site(HttpSecurity h,SessionSecurityService sessions)throws Exception {
   CookieCsrfTokenRepository repo=CookieCsrfTokenRepository.withHttpOnlyFalse(); repo.setCookieCustomizer(c->c.sameSite("Lax").path("/"));
   CsrfTokenRequestAttributeHandler handler=new CsrfTokenRequestAttributeHandler();
-  return h.csrf(c->c.csrfTokenRepository(repo).csrfTokenRequestHandler(handler).ignoringRequestMatchers("/payments/momo/ipn"))
+  return h.csrf(c->c.csrfTokenRepository(repo).csrfTokenRequestHandler(handler))
    .securityContext(s->s.securityContextRepository(new HttpSessionSecurityContextRepository()))
+   .addFilterAfter(new OncePerRequestFilter(){protected void doFilterInternal(HttpServletRequest req,HttpServletResponse res,FilterChain chain)throws ServletException,IOException{
+    HttpSession session=req.getSession(false);
+    var auth=SecurityContextHolder.getContext().getAuthentication();
+    if(session!=null&&auth!=null&&auth.isAuthenticated()&&!sessions.valid(session)){
+     sessions.invalidate(session);SecurityContextHolder.clearContext();
+     String path=req.getServletPath();if(path.isEmpty())path=req.getRequestURI();
+     if((path.startsWith("/shop-api/")&&!path.startsWith("/shop-api/public/")&&!path.startsWith("/shop-api/auth/"))||path.equals("/ws")){
+      jsonError(res,401,"Phiên đăng nhập đã hết hiệu lực. Vui lòng đăng nhập lại.");return;
+     }
+    }
+    chain.doFilter(req,res);
+   }},org.springframework.security.web.context.SecurityContextHolderFilter.class)
    .authorizeHttpRequests(a->a.requestMatchers("/shop-api/public/**","/shop-api/auth/**","/","/assets/**","/app.js","/style.css","/favicon.svg","/error","/payments/**").permitAll().anyRequest().authenticated())
    .exceptionHandling(e->e.authenticationEntryPoint((req,res,x)->jsonError(res,401,"Vui lòng đăng nhập.")).accessDeniedHandler((req,res,x)->jsonError(res,403,"Phiên làm việc hoặc quyền truy cập không hợp lệ. Tải lại trang.")))
-   .headers(x->x.contentTypeOptions(c->{}).frameOptions(f->f.deny()).contentSecurityPolicy(c->c.policyDirectives("default-src 'self'; img-src 'self' https://res.cloudinary.com data:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"))).build();
+   .headers(x->x.contentTypeOptions(c->{}).frameOptions(f->f.deny()).referrerPolicy(r->r.policy(org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN)).contentSecurityPolicy(c->c.policyDirectives("default-src 'self'; img-src 'self' https://res.cloudinary.com https://tile.openstreetmap.org https://a.tile.openstreetmap.fr data:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"))).build();
  }
  static void jsonError(HttpServletResponse res,int status,String message)throws IOException{res.setStatus(status);res.setContentType("application/json;charset=UTF-8");res.getWriter().write(new ObjectMapper().writeValueAsString(Map.of("message",message)));}
  static UsernamePasswordAuthenticationToken authentication(Account a){return new UsernamePasswordAuthenticationToken(a.email,null,Arrays.stream(a.roles.split(",")).map(r->new SimpleGrantedAuthority("ROLE_"+r)).toList());}

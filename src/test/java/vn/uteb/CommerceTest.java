@@ -30,12 +30,51 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static vn.uteb.Domain.*;
 
-@SpringBootTest(properties={"spring.datasource.url=jdbc:h2:mem:utebtest;MODE=MSSQLServer;DB_CLOSE_DELAY=-1","spring.jpa.hibernate.ddl-auto=create-drop","uteb.vnpay.secret=test-signing-secret-only","uteb.mail.enabled=true"})
+@SpringBootTest(properties={"spring.datasource.url=jdbc:h2:mem:utebtest;MODE=MSSQLServer;DB_CLOSE_DELAY=-1","spring.jpa.hibernate.ddl-auto=create-drop","uteb.vnpay.secret=test-signing-secret-only","uteb.vnpay.code=TESTCODE","uteb.mail.enabled=true"})
+@org.springframework.test.context.ActiveProfiles("demo")
 @AutoConfigureMockMvc @Transactional
 class CommerceTest {
+  @Autowired org.springframework.web.context.WebApplicationContext webContext;
+  @BeforeEach void attachMetadataToMockUserSessions(){
+   // @WithMockUser bypasses login; model the same server-side snapshot as a real login.
+   var authentication=SecurityContextHolder.getContext().getAuthentication();
+   if(authentication!=null){Account account=s.byEmail(authentication.getName());if(account!=null){
+    MockHttpSession session=new MockHttpSession();session.setAttribute(SessionSecurityService.ACCOUNT_ID,account.id);session.setAttribute(SessionSecurityService.TOKEN_VERSION,account.tokenVersion);
+    session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,SecurityContextHolder.getContext());
+    mvc=org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppContextSetup(webContext)
+     .apply(org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity()).defaultRequest(get("/").session(session)).build();
+   }}
+  }
  @Autowired ShopService s;@Autowired MockMvc mvc;@Autowired ObjectMapper json;@Autowired Payments payments;
  @MockitoBean JavaMailSender registrationMail;
  @jakarta.persistence.PersistenceContext jakarta.persistence.EntityManager registrationEm;
+
+ @Test void defaultStoreLocationsFollowTheirAddresses(){
+  assertThat(s.get(Store.class,1).latitude).isCloseTo(10.8505000,within(0.0000001));
+  assertThat(s.get(Store.class,2).latitude).isCloseTo(10.7745167,within(0.0000001));
+  assertThat(s.get(Store.class,2).longitude).isCloseTo(106.7031722,within(0.0000001));
+  assertThat(s.get(Store.class,3).latitude).isCloseTo(10.8000835,within(0.0000001));
+  assertThat(s.get(Store.class,4).longitude).isCloseTo(106.7650860,within(0.0000001));
+  assertThat(s.get(Store.class,4).address).contains("Linh Chiểu");
+ }
+
+ @Test @WithMockUser(username="admin@uteb.vn",roles="ADMIN")
+ void savedStoreCoordinatesArePublishedToTheLocator()throws Exception{
+  Map<String,Object> body=json.convertValue(s.get(Store.class,1),Map.class);
+  body.put("latitude",10.771);body.put("longitude",106.704);
+  mvc.perform(post("/shop-api/admin/stores").with(csrf()).contentType("application/json").content(json.writeValueAsString(body)))
+   .andExpect(status().isOk()).andExpect(jsonPath("$.latitude").value(10.771)).andExpect(jsonPath("$.longitude").value(106.704));
+  mvc.perform(get("/shop-api/public/bootstrap"))
+   .andExpect(status().isOk()).andExpect(jsonPath("$.stores[?(@.id == 1)].latitude").value(org.hamcrest.Matchers.hasItem(10.771)));
+ }
+ @Test void publicLocatorAssetsAndTilePolicyAreAvailableWithoutLogin()throws Exception{
+  mvc.perform(get("/")).andExpect(status().isOk())
+   .andExpect(header().string("Content-Security-Policy",org.hamcrest.Matchers.containsString("https://tile.openstreetmap.org https://a.tile.openstreetmap.fr")))
+   .andExpect(header().string("Referrer-Policy","strict-origin-when-cross-origin"))
+   .andExpect(content().string(org.hamcrest.Matchers.containsString("/assets/store-locator.js")));
+  mvc.perform(get("/assets/leaflet/leaflet.js")).andExpect(status().isOk());
+  mvc.perform(get("/assets/store-locator.css")).andExpect(status().isOk());
+ }
 
  Map<String,Object> registration(){return new HashMap<>(Map.of("email","new-registration@example.com","name","New Customer","phone","0901234567","password","Register@123"));}
  ResultActions registerRequest(Map<String,Object> body)throws Exception{
@@ -172,7 +211,7 @@ class CommerceTest {
  }
  // csrf() in other tests replaces the filter repository; reload the real cookie-based chain here.
  @org.springframework.test.annotation.DirtiesContext(methodMode=org.springframework.test.annotation.DirtiesContext.MethodMode.BEFORE_METHOD)
- @Test void loginLogoutUseBrowserCsrfAndInvalidateOnlyCurrentSession()throws Exception{
+ @Test void loginLogoutUseBrowserCsrfAndRevokeAccountSessions()throws Exception{
   MvcResult bootstrap=mvc.perform(get("/shop-api/public/bootstrap")).andExpect(status().isOk()).andReturn();
   Cookie before=bootstrap.getResponse().getCookie("XSRF-TOKEN");assertThat(before).isNotNull();
   assertThat(json.readTree(bootstrap.getResponse().getContentAsByteArray()).get("csrf").asText()).isEqualTo(before.getValue());
@@ -209,7 +248,7 @@ class CommerceTest {
   mvc.perform(get("/shop-api/account").cookie(new Cookie("JSESSIONID",session.getId()))).andExpect(status().isUnauthorized());
   mvc.perform(get("/api/account").header("Authorization","Bearer "+loginToken(loggedIn))).andExpect(status().isUnauthorized());
   mvc.perform(get("/api/account").header("Authorization","Bearer "+loginToken(secondLogin))).andExpect(status().isUnauthorized());
-  mvc.perform(get("/shop-api/account").session(other)).andExpect(status().isOk());
+  mvc.perform(get("/shop-api/account").session(other)).andExpect(status().isUnauthorized());
   SecurityContextHolder.clearContext();
   MvcResult afterLogout=mvc.perform(get("/shop-api/public/bootstrap")).andExpect(status().isOk()).andReturn();
   assertThat(afterLogout.getResponse().getCookie("XSRF-TOKEN").getValue()).isNotEqualTo(after.getValue());
@@ -410,7 +449,7 @@ class CommerceTest {
   Account a=otpTransaction(()->{Account created=otpAccount("VERIFY");created.otpAttempts=3;registrationEm.flush();registrationEm.refresh(created);return created;});
   try{
    doThrow(new org.springframework.mail.MailSendException("SMTP test failure")).when(registrationMail).send(any(SimpleMailMessage.class));
-   otpSend(Map.of("email",a.email,"purpose","RESET")).andExpect(status().isInternalServerError());
+   otpSend(Map.of("email",a.email,"purpose","RESET")).andExpect(status().isServiceUnavailable());
    Account after=otpTransaction(()->s.byEmail(a.email));
    assertThat(after.otpHash).isEqualTo(a.otpHash);assertThat(after.otpPurpose).isEqualTo(a.otpPurpose);
    assertThat(after.otpSent).isEqualTo(a.otpSent);assertThat(after.otpExpires).isEqualTo(a.otpExpires);
@@ -546,7 +585,7 @@ class CommerceTest {
   mvc.perform(put("/shop-api/account/password").session(session).with(csrf())
    .contentType("application/json").content(body)).andExpect(status().isOk());
  }
- @Test void passwordChangeKeepsExistingWebSession()throws Exception{
+ @Test void passwordChangeRevokesExistingWebSession()throws Exception{
   Account a=passwordAccount();MvcResult login=passwordWebLogin(a.email,"Original@123");
   MockHttpSession session=(MockHttpSession)login.getRequest().getSession(false);
   SecurityContextHolder.clearContext();
@@ -554,8 +593,7 @@ class CommerceTest {
    .content(json.writeValueAsString(Map.of("currentPassword","Original@123","password","Replacement@123"))))
    .andExpect(status().isOk());
   SecurityContextHolder.clearContext();
-  mvc.perform(get("/shop-api/account").session(session)).andExpect(status().isOk())
-   .andExpect(jsonPath("$.user.email").value(a.email));
+  mvc.perform(get("/shop-api/account").session(session)).andExpect(status().isUnauthorized());
  }
  String yc13Token(Account account)throws Exception{return loginToken(passwordApiLogin(account.email,"Original@123"));}
  ResultActions yc13Profile(String token,Map<String,Object> body)throws Exception{
@@ -996,10 +1034,10 @@ class CommerceTest {
    .contains(shipperB.id).doesNotContain(shipperA.id);
   assertThat(yc15Ids(yc15Get(admin,"/admin/shippers").andExpect(status().isOk()).andReturn(),null))
    .contains(shipperA.id,shipperB.id);
-  yc15Put(managerA,"/orders/"+orderA.id+"/shipper",Map.of("shipperId",shipperB.id))
-   .andExpect(status().isForbidden());
-  yc15Put(admin,"/orders/"+orderA.id+"/shipper",Map.of("shipperId",shipperB.id))
-   .andExpect(status().isForbidden());
+   yc15Put(managerA,"/orders/"+orderA.id+"/shipper",Map.of("shipperId",shipperB.id))
+    .andExpect(status().isBadRequest());
+   yc15Put(admin,"/orders/"+orderA.id+"/shipper",Map.of("shipperId",shipperB.id))
+    .andExpect(status().isBadRequest());
   yc15Put(managerBToken,"/orders/"+orderA.id+"/shipper",Map.of("shipperId",shipperA.id))
    .andExpect(status().isForbidden());
   assertThat(orderA.shipperId).isNull();
@@ -1009,7 +1047,7 @@ class CommerceTest {
    .andExpect(status().isOk());
   assertThat(orderA.shipperId).isEqualTo(shipperA.id);assertThat(orderB.shipperId).isEqualTo(shipperB.id);
  }
- @Test void yc15ShipperOrdersAndDashboardRequireAssignmentAndStore()throws Exception{
+  @Test void yc15ShipperOrdersAndDashboardFollowAssignmentAcrossStores()throws Exception{
   Account customerA=yc15Account("CUSTOMER",null),customerB=yc15Account("CUSTOMER",null);
   Account shipperA=s.byEmail("shipper@uteb.vn"),shipperB=yc15Account("SHIPPER",2L);
   MealOrder assignedA=yc15Order(customerA,1L,shipperA,"READY");
@@ -1019,13 +1057,14 @@ class CommerceTest {
   String tokenA=yc14Token("shipper"),tokenB=yc15Token(shipperB);
   for(String path:List.of("/orders","/admin/dashboard")){
    String field=path.equals("/orders")?null:"orders";
-   assertThat(yc15Ids(yc15Get(tokenA,path).andExpect(status().isOk()).andReturn(),field))
-    .contains(assignedA.id).doesNotContain(unassignedA.id,assignedB.id,wrongStore.id);
+    assertThat(yc15Ids(yc15Get(tokenA,path).andExpect(status().isOk()).andReturn(),field))
+     .contains(assignedA.id,wrongStore.id).doesNotContain(unassignedA.id,assignedB.id);
    assertThat(yc15Ids(yc15Get(tokenB,path).andExpect(status().isOk()).andReturn(),field))
     .contains(assignedB.id).doesNotContain(assignedA.id,unassignedA.id,wrongStore.id);
   }
-  yc15Get(tokenA,"/orders/"+assignedA.id).andExpect(status().isOk());
-  for(MealOrder foreign:List.of(unassignedA,assignedB,wrongStore)){
+   yc15Get(tokenA,"/orders/"+assignedA.id).andExpect(status().isOk());
+   yc15Get(tokenA,"/orders/"+wrongStore.id).andExpect(status().isOk());
+   for(MealOrder foreign:List.of(unassignedA,assignedB)){
    yc15Get(tokenA,"/orders/"+foreign.id).andExpect(status().isForbidden());
    yc15Put(tokenA,"/orders/"+foreign.id+"/status",Map.of("status","DELIVERING"))
     .andExpect(status().isForbidden());
@@ -1168,7 +1207,7 @@ class CommerceTest {
   assertThat(manager.roles).isEqualTo("CUSTOMER");
   yc15Get(oldJwt,"/admin/users").andExpect(status().isUnauthorized());
   SecurityContextHolder.clearContext();
-  mvc.perform(get("/shop-api/admin/users").session(session)).andExpect(status().isForbidden());
+   mvc.perform(get("/shop-api/admin/users").session(session)).andExpect(status().isUnauthorized());
   String newJwt=yc15Token(manager);
   yc15Get(newJwt,"/account").andExpect(status().isOk())
    .andExpect(jsonPath("$.user.roles").value("CUSTOMER"));
@@ -1218,10 +1257,10 @@ class CommerceTest {
   otpSubmit(Map.of("email",account.email,"otp","654321")).andExpect(status().isOk());
   assertThat(otpReload(account.email).verified).isTrue();
  }
- Product custom(Long store){return s.all(Product.class).stream().filter(p->p.storeId.equals(store)&&p.customizable).findFirst().orElseThrow();}
+ Product custom(Long store){return s.all(Product.class).stream().filter(p->p.storeId.equals(store)&&p.customizable&&p.available).findFirst().orElseThrow();}
  String ingredients(){return List.of("PROTEIN","RICE","BEANS","SAUCE").stream().map(g->s.all(Ingredient.class).stream().filter(i->i.groupName.equals(g)&&i.price.signum()==0).findFirst().orElseThrow().id.toString()).collect(java.util.stream.Collectors.joining(","));}
  Map<String,Object> checkout(String key,String type){return new HashMap<>(Map.of("checkoutKey",key,"type",type,"contactName","Test Customer","phone","0901234567","address","25 Võ Văn Ngân, Thủ Đức","paymentMethod","COD","scheduledAt","ASAP"));}
- @Test void publicCatalogAndAnonymousProtection()throws Exception{mvc.perform(get("/shop-api/public/bootstrap")).andExpect(status().isOk()).andExpect(jsonPath("$.products.length()").value(48)).andExpect(jsonPath("$.csrf").exists());mvc.perform(get("/shop-api/cart")).andExpect(status().isUnauthorized());}
+ @Test void publicCatalogAndAnonymousProtection()throws Exception{mvc.perform(get("/shop-api/public/bootstrap")).andExpect(status().isOk()).andExpect(jsonPath("$.products.length()").value(96)).andExpect(jsonPath("$.csrf").exists());mvc.perform(get("/shop-api/cart")).andExpect(status().isUnauthorized());}
  @Test @WithMockUser(username="customer@uteb.vn")void csrfAndPrivilegeChecks()throws Exception{mvc.perform(post("/shop-api/cart").contentType("application/json").content("{}" )).andExpect(status().isForbidden());mvc.perform(get("/shop-api/admin/users")).andExpect(status().isForbidden());}
  @Test @WithMockUser(username="customer@uteb.vn")void checkoutRecalculatesIdempotencyAndCancel(){Product p=custom(1L);int stock=p.stock;s.cart(Map.of("productId",p.id,"quantity",2,"ingredientIds",ingredients()));Map<String,Object>b=checkout("unique-checkout-0001","PICKUP");b.put("total",1);MealOrder o=s.checkout(b).getFirst();assertThat(o.total).isGreaterThan(new BigDecimal("1"));assertThat(p.stock).isEqualTo(stock-2);assertThat(s.checkout(b).getFirst().id).isEqualTo(o.id);assertThat(s.where(OrderLine.class,"orderId",o.id)).hasSize(1);s.status(o.id,Map.of("status","CANCELLED"));assertThat(p.stock).isEqualTo(stock);assertThat(o.status).isEqualTo("CANCELLED");assertThatThrownBy(()->s.status(o.id,Map.of("status","CONFIRMED"))).hasMessageContaining("Không thể chuyển");}
  @Test @WithMockUser(username="customer@uteb.vn")void multiStoreVoucherAllocation(){Product p1=custom(1L),p2=custom(2L);s.cart(Map.of("productId",p1.id,"quantity",2,"ingredientIds",ingredients()));s.cart(Map.of("productId",p2.id,"quantity",2,"ingredientIds",ingredients()));Map<String,Object>b=checkout("multi-store-test-0001","DELIVERY");b.put("voucher","UTEB20");Map<String,Object>q=s.preview(b);List<MealOrder> os=s.checkout(b);assertThat(os).hasSize(2);assertThat(os.stream().map(o->o.discount).reduce(BigDecimal.ZERO,BigDecimal::add)).isEqualByComparingTo((BigDecimal)q.get("discount"));assertThat(os.stream().map(o->o.total).reduce(BigDecimal.ZERO,BigDecimal::add)).isEqualByComparingTo((BigDecimal)q.get("total"));assertThat(s.findVoucher("UTEB20").used).isEqualTo(1);}
@@ -1229,10 +1268,195 @@ class CommerceTest {
  @Test @WithMockUser(username="customer@uteb.vn")void invalidCustomizationStockAndVoucher(){Product p=custom(1L);assertThatThrownBy(()->s.cart(Map.of("productId",p.id,"quantity",0,"ingredientIds",ingredients()))).hasMessageContaining("Số lượng");assertThatThrownBy(()->s.cart(Map.of("productId",p.id,"quantity",1,"ingredientIds",""))).hasMessageContaining("thành phần");s.cart(Map.of("productId",p.id,"quantity",1,"ingredientIds",ingredients()));Map<String,Object>b=checkout("voucher-test-0001","PICKUP");b.put("voucher","BURRITO50");assertThatThrownBy(()->s.preview(b)).hasMessageContaining("điều kiện");}
  @Test @WithMockUser(username="customer@uteb.vn")void reviewEligibilityAndDuplicate(){MealOrder completed=s.all(MealOrder.class).stream().filter(o->o.status.equals("COMPLETED")).findFirst().orElseThrow();OrderLine l=s.where(OrderLine.class,"orderId",completed.id).getFirst();String text="Burrito rất ngon, nguyên liệu tươi và nhân vừa miệng. Tôi sẽ đặt lại lần sau.";Review r=s.review(Map.of("orderLineId",l.id,"stars",5,"text",text));assertThat(r.stars).isEqualTo(5);assertThatThrownBy(()->s.review(Map.of("orderLineId",l.id,"stars",5,"text",text))).hasMessageContaining("đã đánh giá");MealOrder fresh=s.all(MealOrder.class).stream().filter(o->o.status.equals("NEW")).findFirst().orElseThrow();assertThatThrownBy(()->s.review(Map.of("orderLineId",s.where(OrderLine.class,"orderId",fresh.id).getFirst().id,"stars",5,"text",text))).hasMessageContaining("nhận món");}
  @Test @WithMockUser(username="customer@uteb.vn")void rewardVoucherOnlyOnce(){int before=s.me().points;Voucher v=s.redeem("DRINK");assertThat(s.me().points).isEqualTo(before-500);assertThat(v.userId).isEqualTo(s.me().id);assertThat(v.usageLimit).isEqualTo(1);assertThat(s.where(RewardLog.class,"userId",s.me().id)).anyMatch(l->l.points==-500);}
- @Test void forgedPaymentRejected(){assertThat(payments.vnIpn(Map.of("vnp_SecureHash","fake","vnp_TxnRef","1"))).containsEntry("RspCode","97");assertThatThrownBy(()->payments.momoIpn(Map.of("signature","fake"))).hasMessageContaining("cấu hình");}
+ @Test void forgedPaymentRejected(){assertThat(payments.vnIpn(Map.of("vnp_SecureHash","fake","vnp_TxnRef","1"))).containsEntry("RspCode","97");}
  @Test void otpAttemptsExpiryAndSingleUse(){Account a=s.byEmail("customer@uteb.vn");a.otpHash=s.hashPassword("123456");a.otpPurpose="VERIFY";a.otpExpires=java.time.LocalDateTime.now().plusMinutes(5);a.otpAttempts=0;assertThat(s.checkOtp(Map.of("email",a.email,"otp","000000"))).isFalse();assertThat(a.otpAttempts).isEqualTo(1);assertThat(s.checkOtp(Map.of("email",a.email,"otp","123456"))).isTrue();assertThat(s.checkOtp(Map.of("email",a.email,"otp","123456"))).isFalse();a.otpHash=s.hashPassword("123456");a.otpExpires=java.time.LocalDateTime.now().minusSeconds(1);assertThat(s.checkOtp(Map.of("email",a.email,"otp","123456"))).isFalse();}
  @Test @WithMockUser(username="customer@uteb.vn")void paymentExpiryReturnsStockOnce(){Product p=custom(1L);int before=p.stock;s.cart(Map.of("productId",p.id,"quantity",1,"ingredientIds",ingredients()));Map<String,Object>b=checkout("expire-test-order-01","PICKUP");b.put("paymentMethod","VNPAY");MealOrder o=s.checkout(b).getFirst();o.paymentExpires=java.time.LocalDateTime.now().minusMinutes(1);s.expirePayments();assertThat(o.paymentStatus).isEqualTo("EXPIRED");assertThat(p.stock).isEqualTo(before);s.expirePayments();assertThat(p.stock).isEqualTo(before);}
- @Test @WithMockUser(username="customer@uteb.vn")void verifiedIpnAndRepeatedCallback(){Product p=custom(1L);s.cart(Map.of("productId",p.id,"quantity",1,"ingredientIds",ingredients()));Map<String,Object>b=checkout("ipn-test-order-0001","PICKUP");b.put("paymentMethod","VNPAY");MealOrder o=s.checkout(b).getFirst();Map<String,String>ipn=new TreeMap<>(Map.of("vnp_TxnRef",o.id.toString(),"vnp_Amount",o.total.multiply(new BigDecimal("100")).toPlainString(),"vnp_TransactionNo","TEST-REF-001","vnp_ResponseCode","00","vnp_TransactionStatus","00"));ipn.put("vnp_SecureHash",Payments.sign("HmacSHA512","test-signing-secret-only",Payments.vnRaw(ipn)));assertThat(payments.vnIpn(ipn)).containsEntry("RspCode","00");assertThat(o.paymentStatus).isEqualTo("PAID");assertThat(payments.vnIpn(ipn)).containsEntry("RspCode","02");}
+ @Test @WithMockUser(username="customer@uteb.vn")void verifiedIpnAndRepeatedCallback()throws Exception{Product p=custom(1L);s.cart(Map.of("productId",p.id,"quantity",1,"ingredientIds",ingredients()));Map<String,Object>b=checkout("ipn-test-order-0001","PICKUP");b.put("paymentMethod","VNPAY");MealOrder o=s.checkout(b).getFirst();Map<String,String>ipn=new TreeMap<>(Map.of("vnp_TmnCode","TESTCODE","vnp_TxnRef",payments.start(o.id,"127.0.0.1").get("reference").toString(),"vnp_Amount",VnpayService.minorAmount(o.total),"vnp_TransactionNo","140000001","vnp_ResponseCode","00","vnp_TransactionStatus","00"));ipn.put("vnp_SecureHash",Payments.sign("HmacSHA512","test-signing-secret-only",Payments.vnRaw(ipn)));assertThat(payments.vnIpn(ipn)).containsEntry("RspCode","00");assertThat(o.paymentStatus).isEqualTo("PAID");assertThat(payments.vnIpn(ipn)).containsEntry("RspCode","02");}
  @Test @WithMockUser(username="customer@uteb.vn")void groupLocksAndTransfersOnce(){GroupMeal g=s.createGroup(Map.of("storeId",1,"title","Test group"));Product p=custom(1L);s.groupAdd(g.code,Map.of("productId",p.id,"quantity",1,"ingredientIds",ingredients()));s.groupToCart(g.code);assertThat(g.status).isEqualTo("LOCKED");assertThat(s.where(CartLine.class,"userId",s.me().id)).hasSize(1);assertThatThrownBy(()->s.groupToCart(g.code)).hasMessageContaining("chuyển vào giỏ");}
  @Test void sessionLoginAndJwt()throws Exception{MvcResult r=mvc.perform(post("/shop-api/auth/login").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email","customer@uteb.vn","password","Uteb@12345")))).andExpect(status().isOk()).andExpect(jsonPath("$.user.passwordHash").doesNotExist()).andReturn();String token=json.readTree(r.getResponse().getContentAsString()).get("token").asText();org.springframework.security.core.context.SecurityContextHolder.clearContext();mvc.perform(get("/api/account").header("Authorization","Bearer "+token)).andExpect(status().isOk());org.springframework.security.core.context.SecurityContextHolder.clearContext();mvc.perform(get("/api/account").header("Authorization","Bearer "+token+"x")).andExpect(status().isUnauthorized());}
+
+ @ParameterizedTest @ValueSource(strings={"INGREDIENT","DELETED_INGREDIENT","PRODUCT","DELETED_PRODUCT","MOVED_PRODUCT","STORE","STOCK"})
+ @WithMockUser(username="customer@uteb.vn")
+ void invalidCartLineRemainsVisibleAndCheckoutStaysBlocked(String problem)throws Exception{
+  Product p=custom(1L);String ids=ingredients();
+  CartLine bad=s.cart(Map.of("productId",p.id,"quantity",1,"ingredientIds",ids));
+  Product fixed=s.all(Product.class).stream().filter(x->!x.customizable&&x.storeId.equals(2L)&&x.available).findFirst().orElseThrow();
+  CartLine good=s.cart(Map.of("productId",fixed.id,"quantity",1,"ingredientIds",""));
+  Ingredient ingredient=s.get(Ingredient.class,Long.parseLong(ids.split(",")[0]));
+  switch(problem){
+   case "INGREDIENT"->ingredient.available=false;
+   case "DELETED_INGREDIENT"->registrationEm.remove(ingredient);
+   case "PRODUCT"->p.available=false;
+   case "MOVED_PRODUCT"->p.storeId=2L;
+   case "DELETED_PRODUCT"->registrationEm.remove(p);
+   case "STORE"->s.get(Store.class,1L).active=false;
+   case "STOCK"->p.stock=0;
+  }
+  mvc.perform(get("/shop-api/cart")).andExpect(status().isOk())
+   .andExpect(jsonPath("$.length()").value(2));
+  reviewActor("customer@uteb.vn");
+  Map<String,Object> row=s.cartView().stream().filter(r->((CartLine)r.get("line")).id.equals(bad.id)).findFirst().orElseThrow();
+  assertThat(row.get("available")).isEqualTo(false);assertThat((List<?>)row.get("issues")).isNotEmpty();
+  assertThat(s.cartView().stream().filter(r->((CartLine)r.get("line")).id.equals(good.id)).findFirst().orElseThrow().get("available")).isEqualTo(true);
+  assertThatThrownBy(()->s.preview(checkout("invalid-cart-review-0001","PICKUP"))).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+  s.deleteCart(bad.id);assertThat(s.cartView()).hasSize(1);assertThat(s.preview(checkout("valid-cart-review-0001","PICKUP")).get("total")).isNotNull();
+ }
+ @Test @WithMockUser(username="customer@uteb.vn")
+ void unavailableIngredientCanBeReplacedWithoutLosingCartNote(){
+  Product p=custom(1L);String ids=ingredients();CartLine line=s.cart(Map.of("productId",p.id,"quantity",2,"ingredientIds",ids,"note","Không cay"));
+  Ingredient old=s.get(Ingredient.class,Long.parseLong(ids.split(",")[0]));old.available=false;
+  Ingredient replacement=s.all(Ingredient.class).stream().filter(i->i.available&&i.groupName.equals(old.groupName)).findFirst().orElseThrow();
+  s.cart(Map.of("id",line.id,"productId",p.id,"quantity",2,"ingredientIds",ids.replaceFirst(old.id.toString(),replacement.id.toString()),"note",line.note));
+  assertThat(s.cartView()).hasSize(1);assertThat(s.cartView().getFirst().get("available")).isEqualTo(true);assertThat(line.note).isEqualTo("Không cay");
+ }
+ @Test @WithMockUser(username="customer@uteb.vn")
+ void cartChecksCumulativeProductStockAcrossCustomizations(){
+  Product p=custom(1L);String ids=ingredients();s.cart(Map.of("productId",p.id,"quantity",2,"ingredientIds",ids));s.cart(Map.of("productId",p.id,"quantity",2,"ingredientIds",ids));p.stock=3;
+  assertThat(s.cartView()).allMatch(r->Boolean.FALSE.equals(r.get("available")));
+  assertThatThrownBy(()->s.preview(checkout("combined-stock-review-0001","PICKUP"))).hasMessageContaining("tồn kho");
+ }
+ MealOrder assignmentOrder(){return s.all(MealOrder.class).stream().filter(o->o.storeId.equals(1L)&&o.type.equals("DELIVERY")&&o.status.equals("NEW")).findFirst().orElseThrow();}
+ @ParameterizedTest @ValueSource(strings={"PICKUP","DELIVERING","COMPLETED","CANCELLED"})
+ @WithMockUser(username="manager@uteb.vn")
+ void assignmentRejectsWrongTypeAndClosedOrStartedOrders(String state)throws Exception{
+  MealOrder o=assignmentOrder();if(state.equals("PICKUP"))o.type=state;else o.status=state;
+  int events=s.where(OrderEvent.class,"orderId",o.id).size();Long old=o.shipperId;
+  mvc.perform(put("/shop-api/orders/"+o.id+"/shipper").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("shipperId",s.byEmail("shipper@uteb.vn").id)))).andExpect(status().isBadRequest());
+  assertThat(o.shipperId).isEqualTo(old);assertThat(s.where(OrderEvent.class,"orderId",o.id)).hasSize(events);
+  mvc.perform(get("/shop-api/admin/shippers").param("orderId",o.id.toString())).andExpect(status().isBadRequest());
+ }
+ @ParameterizedTest @ValueSource(strings={"FOREIGN_BRANCH","INACTIVE","UNVERIFIED","ROLE","NO_BRANCH"})
+ @WithMockUser(username="admin@uteb.vn")
+ void assignmentRejectsIneligibleShippersEvenForAdmin(String reason)throws Exception{
+  MealOrder o=assignmentOrder();Account shipper=s.byEmail("shipper@uteb.vn");
+  switch(reason){case "FOREIGN_BRANCH"->shipper.storeId=2L;case "INACTIVE"->shipper.active=false;case "UNVERIFIED"->shipper.verified=false;case "ROLE"->shipper.roles="CUSTOMER";case "NO_BRANCH"->shipper.storeId=null;}
+  mvc.perform(get("/shop-api/admin/shippers").param("orderId",o.id.toString())).andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+  mvc.perform(put("/shop-api/orders/"+o.id+"/shipper").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("shipperId",shipper.id)))).andExpect(status().isBadRequest());assertThat(o.shipperId).isNull();
+ }
+ @ParameterizedTest @ValueSource(strings={"NEW","CONFIRMED","PREPARING","READY"})
+ @WithMockUser(username="manager@uteb.vn")
+ void managerCanAssignEligibleShipperAndRepeatIsIdempotent(String state)throws Exception{
+  MealOrder o=assignmentOrder();o.status=state;Account shipper=s.byEmail("shipper@uteb.vn");
+  mvc.perform(get("/shop-api/admin/shippers").param("orderId",o.id.toString())).andExpect(status().isOk()).andExpect(jsonPath("$[0].id").value(shipper.id.intValue()));
+  reviewActor("manager@uteb.vn");
+  int events=s.where(OrderEvent.class,"orderId",o.id).size();s.assign(o.id,shipper.id);s.assign(o.id,shipper.id);
+  assertThat(o.shipperId).isEqualTo(shipper.id);assertThat(s.where(OrderEvent.class,"orderId",o.id)).hasSize(events+1);
+ }
+ @Test @WithMockUser(username="vendor2@uteb.vn") void foreignBranchCannotInspectOrAssignOrderShippers()throws Exception{
+  MealOrder o=assignmentOrder();mvc.perform(get("/shop-api/admin/shippers").param("orderId",o.id.toString())).andExpect(status().isForbidden());
+  mvc.perform(put("/shop-api/orders/"+o.id+"/shipper").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("shipperId",s.byEmail("shipper@uteb.vn").id)))).andExpect(status().isForbidden());
+  reviewActor("vendor2@uteb.vn");assertThat(s.shippers(null)).isEmpty();
+ }
+ @Test @WithMockUser(username="customer@uteb.vn") void customerCannotListEligibleShippers()throws Exception{
+  mvc.perform(get("/shop-api/admin/shippers").param("orderId",assignmentOrder().id.toString())).andExpect(status().isForbidden());
+ }
+ void reviewActor(String email){SecurityContextHolder.getContext().setAuthentication(new org.springframework.security.authentication.TestingAuthenticationToken(email,"","ROLE_USER"));}
+ @Test @Transactional(propagation=org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
+ void registrationSmtpFailureLeavesNoAccountAndCanBeRetried()throws Exception{
+  Map<String,Object> body=registration();body.put("email","smtp-rollback-"+UUID.randomUUID()+"@example.com");
+  doThrow(new org.springframework.mail.MailAuthenticationException("private-test-password-must-not-appear")).when(registrationMail).send(any(SimpleMailMessage.class));
+  registerRequest(body).andExpect(status().isServiceUnavailable()).andExpect(jsonPath("$.message").value("Chưa gửi được email. Vui lòng thử lại sau hoặc liên hệ cửa hàng."));
+  assertThat(otpTransaction(()->s.byEmail(body.get("email").toString()))).isNull();
+  reset(registrationMail);
+  try{registerRequest(body).andExpect(status().isOk());assertThat(otpTransaction(()->s.byEmail(body.get("email").toString()))).isNotNull();}
+  finally{otpTransaction(()->{Account a=s.byEmail(body.get("email").toString());if(a!=null)registrationEm.remove(a);return null;});}
+ }
+ @Test void curatedMenuImagesMatchSeededProductsAndExistingAssets(){
+  assertThat(SeedData.MENU_IMAGES).hasSize(50);
+  for(var entry:SeedData.MENU_IMAGES.entrySet()){
+   Product product=s.all(Product.class).stream().filter(p->p.name.equals(entry.getKey())).findFirst().orElseThrow();
+   assertThat(product.image).isEqualTo(entry.getValue());
+   assertThat(product.description).isEqualTo(SeedData.menuDescription(product.category,product.name));
+   assertThat(product.description).isNotBlank();
+   assertThat(getClass().getResource("/static"+product.image)).isNotNull();
+  }
+  assertThat(getClass().getResource("/static"+SeedData.MENU_PLACEHOLDER)).isNotNull();
+  assertThat(s.all(Product.class)).hasSize(122);
+  assertThat(s.publicData().get("products")).asList().hasSize(96);
+  assertThat(s.all(Product.class).stream().filter(p->p.available&&p.image.equals(SeedData.MENU_PLACEHOLDER))).isEmpty();
+  assertThat(SeedData.MENU_IMAGES.values()).doesNotHaveDuplicates();
+ }
+ @Test void curatedMenuHasEightBurritosAndSmallOtherCategoriesAtEveryStore(){
+  List<Product> visible=s.all(Product.class).stream().filter(p->p.available).toList();
+  assertThat(SeedData.CURATED_MENU).hasSize(24);
+  for(Store store:s.all(Store.class)){
+   List<Product> local=visible.stream().filter(p->store.id.equals(p.storeId)).toList();
+   assertThat(local).hasSize(24);
+   assertThat(local.stream().map(p->p.name)).containsExactlyInAnyOrderElementsOf(SeedData.CURATED_MENU);
+   assertThat(local.stream().map(p->p.name)).doesNotHaveDuplicates();
+   assertThat(local.stream().filter(p->p.category.equals("Burrito"))).hasSize(8);
+   for(String category:List.of("Bowl","Tacos","Quesadilla","Salad","Kids"))
+    assertThat(local.stream().filter(p->p.category.equals(category))).hasSize(2);
+   for(String category:List.of("Sides","Drinks"))
+    assertThat(local.stream().filter(p->p.category.equals(category))).hasSize(3);
+   assertThat(local.stream().filter(p->p.name.equals("Burrito Trứng phô mai")||p.name.equals("Burrito Gà guacamole")))
+    .hasSize(2).allSatisfy(p->assertThat(p.customizable).isFalse());
+  }
+  assertThat(s.all(Product.class).stream().filter(p->p.name.equals("Bowl Heo xé")))
+   .hasSize(1).allSatisfy(p->assertThat(p.available).isFalse());
+ }
+ @Test void curatedMenuImagesHaveTransparentBackground()throws Exception{
+  for(String name:SeedData.CURATED_MENU){
+   String path=SeedData.MENU_IMAGES.get(name);
+   assertThat(path).as(name).endsWith("-cutout.png");
+   try(var stream=getClass().getResourceAsStream("/static"+path)){
+    assertThat(stream).as(path).isNotNull();
+    var image=javax.imageio.ImageIO.read(stream);
+    assertThat(image).as(path).isNotNull();
+    assertThat(image.getColorModel().hasAlpha()).as(path).isTrue();
+    for(int[] corner:new int[][]{{0,0},{image.getWidth()-1,0},{0,image.getHeight()-1},{image.getWidth()-1,image.getHeight()-1}})
+     assertThat(image.getRGB(corner[0],corner[1])>>>24).as(path).isLessThanOrEqualTo(1);
+   }
+  }
+ }
+ @Test @WithMockUser(username="customer@uteb.vn") void hiddenSampleProductCannotBeAddedToCart()throws Exception{
+  Product hidden=s.all(Product.class).stream().filter(p->p.name.equals("Bowl Heo xé")).findFirst().orElseThrow();
+  mvc.perform(post("/shop-api/cart").with(csrf()).contentType("application/json")
+   .content(json.writeValueAsString(Map.of("productId",hidden.id,"quantity",1))))
+   .andExpect(status().isBadRequest());
+ }
+ @Test void vegetarianMenuRejectsMeatEvenWhenCalledDirectly(){
+  Product vegetarian=s.all(Product.class).stream().filter(p->p.name.equals("Burrito Chay")).findFirst().orElseThrow();
+  java.util.function.Function<String,Long> ingredient=name->s.all(Ingredient.class).stream().filter(i->i.name.equals(name)).findFirst().orElseThrow().id;
+  String base=ingredient.apply("Cơm trắng")+","+ingredient.apply("Đậu đen")+","+ingredient.apply("Salsa cà chua");
+  String tofu=ingredient.apply("Đậu hũ chay")+","+base;
+  assertThat(s.quote(vegetarian,tofu).description()).contains("Đậu hũ chay");
+  assertThatThrownBy(()->s.quote(vegetarian,ingredient.apply("Gà nướng")+","+base)).hasMessageContaining("Món chay không dùng thịt");
+  assertThatThrownBy(()->s.quote(vegetarian,tofu+","+ingredient.apply("Thêm thịt"))).hasMessageContaining("Món chay không dùng thịt");
+ }
+ @Test void researchedMenuPricesCaloriesAndStoresAreConsistent(){
+  List<Product>products=s.all(Product.class);
+  assertThat(products).hasSize(122).allSatisfy(p->{
+   assertThat(p.price).isPositive();
+   assertThat(p.stock).isEqualTo(100);
+   assertThat(p.calories).isGreaterThanOrEqualTo(0);
+   assertThat(s.all(Store.class).stream().anyMatch(store->store.id.equals(p.storeId))).isTrue();
+  });
+  Product water=products.stream().filter(p->p.name.equals("Nước suối")).findFirst().orElseThrow();
+  Product cola=products.stream().filter(p->p.name.equals("Cola")).findFirst().orElseThrow();
+  assertThat(water.calories).isZero();
+  assertThat(cola.calories).isEqualTo(139);
+  for(String filling:List.of("Gà nướng","Bò BBQ","Heo xé","Chay","Gà cay","Bò đặc biệt")){
+   Product adult=products.stream().filter(p->p.name.equals("Burrito "+filling)).findFirst().orElseThrow();
+   Product kids=products.stream().filter(p->p.name.equals("Kids "+filling)).findFirst().orElseThrow();
+   assertThat(kids.price).isLessThan(adult.price);
+  }
+ }
+ @Test void menuRecipeAndIncludedProteinPriceAreValidatedAtServiceBoundary(){
+  java.util.function.Function<String,Long> ingredient=name->s.all(Ingredient.class).stream().filter(i->i.name.equals(name)).findFirst().orElseThrow().id;
+  java.util.function.Function<String,Product> product=name->s.all(Product.class).stream().filter(p->p.name.equals(name)).findFirst().orElseThrow();
+  Product beef=product.apply("Burrito Bò BBQ");
+  String rest=ingredient.apply("Cơm trắng")+","+ingredient.apply("Đậu đen")+","+ingredient.apply("Salsa cà chua");
+  assertThat(s.quote(beef,ingredient.apply("Bò BBQ")+","+rest).price()).isEqualByComparingTo(beef.price);
+  assertThat(s.quote(beef,ingredient.apply("Gà nướng")+","+rest).price()).isEqualByComparingTo(beef.price.subtract(new BigDecimal("15000")));
+  Product tacos=product.apply("Tacos Gà nướng");
+  String tacoIngredients=ingredient.apply("Gà nướng")+","+ingredient.apply("Salsa cà chua");
+  assertThat(s.quote(tacos,tacoIngredients).calories()).isEqualTo(tacos.calories+180+25);
+  assertThatThrownBy(()->s.quote(tacos,ingredient.apply("Gà nướng").toString())).hasMessageContaining("SAUCE");
+  Product salad=product.apply("Salad Gà nướng");
+  assertThatThrownBy(()->s.quote(salad,tacoIngredients)).hasMessageContaining("BEANS");
+  Product kids=product.apply("Kids Gà nướng");
+  String kidsIngredients=ingredient.apply("Gà nướng")+","+ingredient.apply("Cơm trắng")+","+ingredient.apply("Salsa cà chua");
+  assertThat(s.quote(kids,kidsIngredients).calories()).isEqualTo(kids.calories+90+105+13);
+ }
 }
