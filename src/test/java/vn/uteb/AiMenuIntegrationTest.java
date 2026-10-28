@@ -65,4 +65,36 @@ class AiMenuIntegrationTest {
         assertThatThrownBy(()->service.recommend(1,"Gà",List.of())).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
         verify(model,never()).understand(anyString(),anyList(),anyList());
     }
+    MenuPreferences extended(String topic,String goal,int servings,Integer budget){return new MenuPreferences("FOOD",List.of("CHICKEN"),List.of(),false,false,null,null,null,List.of(),false,false,"ANY",List.of(),false,"",topic,goal,List.of(),List.of(),servings,budget);}
+    @Test void storeQuestionGetsAnAnswerWithoutUnrelatedCalorieRecommendations(){
+        when(model.understand(anyString(),anyList(),anyList())).thenReturn(extended("STORE","BALANCED",1,null));when(model.respond(anyString(),anyList(),anyMap())).thenReturn("Cửa hàng mở 10:00–22:00, bạn muốn đến lấy hay giao tận nơi?");
+        var result=service.recommend(1,"Cửa hàng mở mấy giờ?",List.of());assertThat((List<?>)result.get("items")).isEmpty();assertThat(result.get("message").toString()).contains("10:00").doesNotContain("kcal");
+        var facts=org.mockito.ArgumentCaptor.forClass(Map.class);verify(model).respond(eq("Cửa hàng mở mấy giờ?"),anyList(),facts.capture());assertThat(facts.getValue().keySet()).contains("store","availableMenu","exactSuggestions").doesNotContain("accounts","SMTP_PASSWORD","DB_PASSWORD");
+    }
+    @Test void groupRecommendationsExposeExactTotalsAndDoNotForceCaloriesIntoNormalConversation(){
+        when(model.understand(anyString(),anyList(),anyList())).thenReturn(extended("RECOMMEND","FILLING",2,200000));
+        var result=service.recommend(1,"Hai người ăn no trong 200k",List.of());assertThat((List<?>)result.get("items")).isNotEmpty();
+        for(Object raw:(List<?>)result.get("items")){Map<?,?> item=(Map<?,?>)raw;assertThat(item.get("quantity")).isEqualTo(2);assertThat((java.math.BigDecimal)item.get("totalPrice")).isEqualByComparingTo(((java.math.BigDecimal)item.get("price")).multiply(java.math.BigDecimal.valueOf(2))).isLessThanOrEqualTo(java.math.BigDecimal.valueOf(200000));assertThat(item.get("showCalories")).isEqualTo(false);}
+    }
+    @Test void malformedHistoryDoesNotReachEitherModelStage()throws Exception{
+        mvc.perform(post("/api/public/ai/recommend").contentType("application/json").content("{\"storeId\":1,\"message\":\"Đổi sang bò\",\"conversation\":[{\"user\":\"gà\",\"answer\":1}]}" )).andExpect(status().isBadRequest());verify(model,never()).respond(anyString(),anyList(),anyMap());verify(model,never()).understand(anyString(),anyList(),anyList(),anyList());
+    }
+    @Test void followupIncludesPreviousAssistantReplyAndDishNames()throws Exception{
+        when(model.understand(anyString(),anyList(),anyList(),anyList())).thenReturn(extended("RECOMMEND","BALANCED",1,null));
+        mvc.perform(post("/api/public/ai/recommend").with(r->{r.setRemoteAddr("conversation");return r;}).contentType("application/json").content("{\"storeId\":1,\"message\":\"Món thứ hai nhé\",\"conversation\":[{\"user\":\"Thèm gà\",\"answer\":\"Hai lựa chọn cho bạn\",\"dishes\":[\"Burrito Gà nướng\",\"Bowl Gà nướng\"]}]}" )).andExpect(status().isOk());
+        verify(model).understand(eq("Món thứ hai nhé"),anyList(),anyList(),argThat(turns->turns.size()==1&&turns.getFirst().dishes().get(1).equals("Bowl Gà nướng")));
+    }
+    @Test void categoryComparisonUsesKnownFormatsAndNeverInventsNutritionOrUnrelatedDishes(){
+        when(model.understand(anyString(),anyList(),anyList())).thenReturn(new MenuPreferences("FOOD",List.of(),List.of(),false,false,null,null,null,List.of("Burrito","Bowl"),false,false,"ANY",List.of(),false,"","COMPARE","BALANCED",List.of(),List.of(),1,null));
+        var result=service.recommend(1,"Burrito và Bowl khác nhau thế nào?",List.of());
+        assertThat(result.get("message").toString()).contains("tortilla cuộn nhân","trong tô").doesNotContain("ít calo","ít no");
+        assertThat((List<?>)result.get("items")).isNotEmpty();for(Object raw:(List<?>)result.get("items"))assertThat(((Map<?,?>)raw).get("category")).isIn("Burrito","Bowl");
+        verify(model,never()).respond(anyString(),anyList(),anyMap());
+    }
+    @Test void proseCannotClaimTheValidatedRecommendationsExceedTheGroupBudget(){
+        when(model.understand(anyString(),anyList(),anyList())).thenReturn(extended("RECOMMEND","BALANCED",2,200000));
+        when(model.respond(anyString(),anyList(),anyMap())).thenReturn("Tacos phù hợp, còn Salad và Bowl vượt quá ngân sách hoặc có nguyên liệu không mong muốn.");
+        var result=service.recommend(1,"Hai người ăn trong 200k, thích gà",List.of());
+        assertThat((List<?>)result.get("items")).isNotEmpty();assertThat(result.get("message").toString()).contains("2 phần cùng món").doesNotContain("vượt quá","không mong muốn");
+    }
 }

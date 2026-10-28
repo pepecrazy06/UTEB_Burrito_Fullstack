@@ -61,3 +61,18 @@ test('each older recommendation opens its own ingredients rather than the latest
  c.state.aiMenu={storeId:1,turns:[{id:1,result:{items:[{storeId:1,productId:10,ingredientIds:[4],price:89000,calories:370}]}}],result:{items:[{storeId:1,productId:20,ingredientIds:[],price:89000,calories:370}]}};
  await c.chooseAiMenu(0,1);assert.equal(selected.id,10);assert.deepEqual(Array.from(selected.ids),[4]);
 });
+test('follow-up carries both the assistant reply and ordered dish names',async()=>{
+ const calls=[];const c=chatContext(async(path,method,body)=>{calls.push(body);return {message:'Hai lựa chọn hợp khẩu vị',items:[{name:'Bowl Gà',customization:'Gà nướng, phô mai'}],criteria:[]};});
+ await c.submitAiMenu({message:'Thèm gà với phô mai'});await c.submitAiMenu({message:'Món đó có cay không?'});
+ assert.equal(calls[1].conversation[0].answer,'Hai lựa chọn hợp khẩu vị');assert.match(calls[1].conversation[0].dishes[0],/Bowl Gà.*phô mai/);
+});
+test('group result shows total price and transfers quantity to the normal builder',async()=>{
+ let opened;const c=context({requireClient:(ok,message)=>{if(!ok)throw Error(message);},reloadData:async()=>{},product:()=>({id:1,storeId:1,available:true,stock:3}),openBuilder:(...args)=>{opened=args;},calculateBuilder:()=>({price:89000,kcal:700}),toast:()=>{}});
+ c.state.data={ingredients:[{id:4,available:true}]};c.state.aiMenu={storeId:1,result:{items:[{productId:1,storeId:1,name:'Gà',quantity:2,price:89000,totalPrice:178000,calories:700,showCalories:false,ingredientIds:[4]}]}};
+ const html=c.aiMenuResults(c.state.aiMenu.result);assert.match(html,/178000đ \/ 2 phần/);assert.doesNotMatch(html,/700 kcal/);await c.chooseAiMenu(0);assert.equal(opened[4],2);
+});
+test('a group recommendation cannot be accepted after stock falls below the requested portions',async()=>{
+ let opened=false;const c=context({requireClient:(ok,message)=>{if(!ok)throw Error(message);},reloadData:async()=>{},product:()=>({id:1,storeId:1,available:true,stock:1}),openBuilder:()=>{opened=true;}});
+ c.state.data={ingredients:[]};c.state.aiMenu={storeId:1,result:{items:[{productId:1,storeId:1,quantity:2,ingredientIds:[]}]}};
+ await assert.rejects(c.chooseAiMenu(0),/tồn kho/);assert.equal(opened,false);
+});
