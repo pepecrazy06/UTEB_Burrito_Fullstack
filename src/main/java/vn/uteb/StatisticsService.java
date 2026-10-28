@@ -16,7 +16,7 @@ import static vn.uteb.ShopService.*;
 @Service @Transactional(readOnly=true)
 public class StatisticsService {
     static final String ZONE="Asia/Ho_Chi_Minh";
-    private static final String EARNED=" and o.status='COMPLETED' and o.paymentStatus='PAID' and o.total>=0"
+    private static final String EARNED=" and o.status in ('COMPLETED','RETURN_REQUESTED','RETURNING','RETURNED') and o.paymentStatus='PAID' and o.total>=0"
             +" and not exists (select r.id from RefundRequest r where r.orderId=o.id and r.status='REFUNDED')";
     private static final String BASE="(case when coalesce(o.subtotal,0)>coalesce(o.discount,0) then coalesce(o.subtotal,0)-coalesce(o.discount,0) else 0 end)";
     private static final String RATE="(case when o.commissionRate>=0 and o.commissionRate<=1 then o.commissionRate else 0 end)";
@@ -39,7 +39,7 @@ public class StatisticsService {
 
     private List<Store> allowedStores(Account actor){
         if(has(actor,"ADMIN"))return em.createQuery("from Store order by id",Store.class).getResultList();
-        Set<Long> ids=new TreeSet<>();if(actor.storeId!=null)ids.add(actor.storeId);
+        Set<Long> ids=new TreeSet<>();if(actor.storeId!=null&&has(actor,"MANAGER","VENDOR","STAFF"))ids.add(actor.storeId);
         // Shippers retain access to assigned orders, including cross-branch assignments.
         if(has(actor,"SHIPPER"))ids.addAll(em.createQuery("select distinct o.storeId from MealOrder o where o.shipperId=:actor and o.storeId is not null",Long.class).setParameter("actor",actor.id).getResultList());
         return ids.isEmpty()?List.of():em.createQuery("from Store s where s.id in :ids order by s.id",Store.class).setParameter("ids",ids).getResultList();
@@ -56,10 +56,9 @@ public class StatisticsService {
         Map<String,Object> parameters=new LinkedHashMap<>();StringBuilder where=new StringBuilder("o.createdAt is not null");
         if(!has(actor,"ADMIN")){
             List<String> scopes=new ArrayList<>();
-            if(actor.storeId!=null){
+            if(actor.storeId!=null&&has(actor,"MANAGER","VENDOR","STAFF")){
                 parameters.put("actorStore",actor.storeId);
-                if(has(actor,"MANAGER","VENDOR","STAFF"))scopes.add("o.storeId=:actorStore");
-                else{scopes.add("(o.userId=:actor and o.storeId=:actorStore)");parameters.put("actor",actor.id);}
+                scopes.add("o.storeId=:actorStore");
             }
             if(has(actor,"SHIPPER")){scopes.add("o.shipperId=:actor");parameters.put("actor",actor.id);}
             where.append(" and (").append(scopes.isEmpty()?"1=0":String.join(" or ",scopes)).append(")");
@@ -83,6 +82,9 @@ public class StatisticsService {
         Map<String,Object> result=new LinkedHashMap<>();result.put("orders",recent);result.put("totalOrders",totals[0]);result.put("customers",totals[1]);result.put("stores",totals[2]);
         result.put("revenue",revenue);result.put("commission",commission);result.put("net",revenue.subtract(commission));result.put("completedOrders",amounts[2]);result.put("daily",daily);result.put("topProducts",top);result.put("filters",filters);
         result.put("availableStores",allowed.stream().map(s->Map.<String,Object>of("id",s.id,"name",s.name,"active",s.active)).toList());
+        Map<String,Long> byStatus=new LinkedHashMap<>();
+        for(Object[] row:query("select o.status,count(o) from MealOrder o where "+scope+" group by o.status order by o.status",Object[].class,parameters).getResultList())byStatus.put((String)row[0],((Number)row[1]).longValue());
+        result.put("byStatus",byStatus);result.put("assignedOnly",has(actor,"SHIPPER")&&!has(actor,"ADMIN","MANAGER","VENDOR","STAFF"));
         return result;
     }
 }

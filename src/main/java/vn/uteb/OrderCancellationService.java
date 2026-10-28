@@ -26,7 +26,7 @@ public class OrderCancellationService {
         em.refresh(order,LockModeType.PESSIMISTIC_WRITE);return order;
     }
     private void conflict(boolean ok,String message){if(!ok)throw new ResponseStatusException(HttpStatus.CONFLICT,message);}
-    private void administrator(Account actor,Long storeId){forbidden(shop.has(actor,"ADMIN")||(shop.has(actor,"MANAGER")&&Objects.equals(actor.storeId,storeId)));}
+    private void administrator(Account actor,Long storeId){forbidden(shop.has(actor,"ADMIN")||(shop.has(actor,"MANAGER","VENDOR")&&Objects.equals(actor.storeId,storeId)));}
     private void beforeCooking(MealOrder order){require(List.of("NEW","CONFIRMED").contains(order.status),"Chỉ yêu cầu hoặc duyệt hủy trước khi chế biến.");}
     private void paid(MealOrder order){
         // Historical MoMo orders may still need manual refunds; new checkout only accepts COD/VNPay.
@@ -46,7 +46,7 @@ public class OrderCancellationService {
     private OrderCancellation forOrder(long id){return shop.where(OrderCancellation.class,"orderId",id).stream().findFirst().orElse(null);}
     private void notifyOperators(MealOrder order,String message){
         for(Account actor:shop.all(Account.class))if(actor.active&&actor.verified&&(shop.has(actor,"ADMIN")
-                ||shop.has(actor,"MANAGER")&&Objects.equals(actor.storeId,order.storeId)))shop.notifyUser(actor.id,order.id,message);
+                ||shop.has(actor,"MANAGER","VENDOR")&&Objects.equals(actor.storeId,order.storeId)))shop.notifyUser(actor.id,order.id,message);
     }
 
     public OrderCancellation request(long orderId,Map<String,Object> body){
@@ -66,13 +66,13 @@ public class OrderCancellationService {
     public Map<String,Object> read(long orderId){
         MealOrder order=shop.accessibleOrder(orderId);Account actor=shop.me();OrderCancellation request=forOrder(orderId);
         if(request==null)return Map.of();
-        if(Objects.equals(actor.id,order.userId)||shop.has(actor,"ADMIN")||(shop.has(actor,"MANAGER")&&Objects.equals(actor.storeId,order.storeId)))
+        if(Objects.equals(actor.id,order.userId)||shop.has(actor,"ADMIN")||(shop.has(actor,"MANAGER","VENDOR")&&Objects.equals(actor.storeId,order.storeId)))
             return Map.of("request",request);
         return Map.of("status",request.status);
     }
 
     public List<Map<String,Object>> list(String status){
-        Account actor=shop.me();forbidden(shop.has(actor,"ADMIN","MANAGER"));
+        Account actor=shop.me();forbidden(shop.has(actor,"ADMIN","MANAGER","VENDOR"));
         require(status==null||status.isBlank()||List.of("REQUESTED","APPROVED","REJECTED","REFUNDED").contains(status),"Trạng thái yêu cầu hủy không hợp lệ.");
         return shop.all(OrderCancellation.class).stream().filter(r->shop.has(actor,"ADMIN")||Objects.equals(actor.storeId,r.storeId))
                 .filter(r->status==null||status.isBlank()||status.equals(r.status))

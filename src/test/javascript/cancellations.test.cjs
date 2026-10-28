@@ -32,11 +32,11 @@ test('proof, rejection reason and customer input are escaped as text',()=>{
 test('staff cannot see management controls or evidence in the summary response',()=>{
  const {context}=environment('STAFF');const html=context.cancellationPanel({status:'APPROVED'},order);assert.match(html,/Chờ hoàn tiền/);assert.doesNotMatch(html,/data-action|Bằng chứng/);
 });
-test('branch manager and admin get decision buttons, vendor and foreign manager do not',()=>{
+test('shop vendor branch manager and admin get decision buttons only within scope',()=>{
  for(const role of ['ADMIN','MANAGER','VENDOR']){
   const {context,state}=environment(role);const data={request:{status:'REQUESTED',reason:'why',amount:100000}};
-  assert.equal(context.cancellationPanel(data,order).includes('cancellation-decision'),role!=='VENDOR');
-  if(role==='MANAGER'){state.user.storeId=6;assert.doesNotMatch(context.cancellationPanel(data,order),/cancellation-decision/);}
+  assert.equal(context.cancellationPanel(data,order).includes('cancellation-decision'),true);
+  if(role!=='ADMIN'){state.user.storeId=6;assert.doesNotMatch(context.cancellationPanel(data,order),/cancellation-decision/);}
  }
 });
 test('management page requests the selected state from the backend',async()=>{
