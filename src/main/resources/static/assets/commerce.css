@@ -10,4 +10,9 @@
 .commerce-image-preview{display:block;max-width:100%;height:100px;object-fit:contain;margin-bottom:.75rem}
 .commerce-product-metrics{font-size:.8rem;color:#71665e;margin-top:.5rem}
 .commerce-home-ranking{margin-top:3rem}
+.home-products .product-card{display:flex;flex-direction:column}
+.home-products .product-body{display:flex;flex:1;flex-direction:column}
+.home-products .product-bottom{display:grid;grid-template-columns:minmax(0,1fr) auto;margin-top:auto;padding-top:18px}
+.home-products .product-price,.home-products .add-button{white-space:nowrap}
+@media(max-width:760px){.home-products .product-bottom{grid-template-columns:1fr}.home-products .add-button{width:100%}}
 @media(max-width:700px){.commerce-product-detail{grid-template-columns:1fr;gap:1.5rem}.commerce-shop-heading{flex-direction:column}.commerce-search{flex-wrap:wrap}.commerce-search .form-control{flex:1;min-width:140px}}
