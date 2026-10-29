@@ -316,7 +316,8 @@ class CommerceTest {
   assertThat(code).matches("[0-9]{6}");assertThat(message.getTo()).containsExactly(email);
   assertThat(message.getFrom()).isNotBlank();
   assertThat(message.getSubject()).contains(purpose.equals("VERIFY")?"xác thực tài khoản":"đặt lại mật khẩu");
-  assertThat(message.getText()).contains("5 phút");
+  assertThat(message.getText()).contains("Chào bạn,", "Bạn đã yêu cầu "+(purpose.equals("VERIFY")?"xác thực tài khoản":"đặt lại mật khẩu"),
+   "Mã OTP của bạn:\n\n"+code, "5 phút", "chỉ dùng một lần", "Nếu không phải bạn yêu cầu", "UTEB Burrito Kitchen");
   assertThat(a.otpHash).startsWith("$2").isNotEqualTo(code);
   assertThat(new BCryptPasswordEncoder().matches(code,a.otpHash)).isTrue();
   assertThat(a.otpPurpose).isEqualTo(purpose);assertThat(a.otpExpires).isEqualTo(a.otpSent.plusMinutes(5));
@@ -928,6 +929,334 @@ class CommerceTest {
   String managerToken=loginToken(passwordApiLogin(managerShipper.email,"Original@123"));
   yc14Get(managerToken,"users").andExpect(status().isOk());
   yc14Get(managerToken,"settings").andExpect(status().isForbidden());
+ }
+ Account yc15Account(String roles,Long storeId){
+  Account a=new Account();a.email="yc15-"+UUID.randomUUID()+"@example.com";a.name="Scope Test";
+  a.phone="0901234567";a.roles=roles;a.storeId=storeId;a.active=true;a.verified=true;
+  a.passwordHash=s.hashPassword("Original@123");return s.save(a);
+ }
+ String yc15Token(Account a)throws Exception{return loginToken(passwordApiLogin(a.email,"Original@123"));}
+ MealOrder yc15Order(Account customer,Long storeId,Account shipper,String status){
+  MealOrder o=new MealOrder();o.userId=customer.id;o.storeId=storeId;o.shipperId=shipper==null?null:shipper.id;
+  o.code="YC15-"+UUID.randomUUID();o.checkoutKey=UUID.randomUUID().toString();o.type="DELIVERY";
+  o.status=status;o.paymentMethod="COD";o.contactName=customer.name;o.phone=customer.phone;
+  o.address="Scope test address";o.total=new BigDecimal("70000");return s.save(o);
+ }
+ Voucher yc15Voucher(Long storeId){
+  Voucher v=new Voucher();v.code="YC15"+UUID.randomUUID().toString().replace("-","").substring(0,12).toUpperCase(Locale.ROOT);
+  v.name="Scope voucher";v.storeId=storeId;v.type="FIXED";v.value=new BigDecimal("10000");return s.save(v);
+ }
+ MediaRecord yc15Media(Account owner){
+  MediaRecord m=new MediaRecord();m.userId=owner.id;m.url="https://res.cloudinary.com/yc15/"+UUID.randomUUID();
+  m.publicId=UUID.randomUUID().toString();m.kind="image";return s.save(m);
+ }
+ ResultActions yc15Get(String token,String path)throws Exception{
+  SecurityContextHolder.clearContext();return mvc.perform(get("/api"+path).header("Authorization","Bearer "+token));
+ }
+ ResultActions yc15Put(String token,String path,Map<String,Object> body)throws Exception{
+  SecurityContextHolder.clearContext();return mvc.perform(put("/api"+path).header("Authorization","Bearer "+token)
+   .contentType("application/json").content(json.writeValueAsString(body)));
+ }
+ ResultActions yc15Post(String token,String path,Map<String,Object> body)throws Exception{
+  SecurityContextHolder.clearContext();return mvc.perform(post("/api"+path).header("Authorization","Bearer "+token)
+   .contentType("application/json").content(json.writeValueAsString(body)));
+ }
+ ResultActions yc15Delete(String token,String path)throws Exception{
+  SecurityContextHolder.clearContext();return mvc.perform(delete("/api"+path).header("Authorization","Bearer "+token));
+ }
+ Set<Long> yc15Ids(MvcResult result,String field)throws Exception{
+  var tree=json.readTree(result.getResponse().getContentAsByteArray());var rows=field==null?tree:tree.get(field);
+  Set<Long> ids=new HashSet<>();for(var row:rows)ids.add(row.get("id").asLong());return ids;
+ }
+ Map<String,Object> yc15ProductBody(Product p,Long storeId){
+  Map<String,Object> b=new HashMap<>();b.put("id",p.id);b.put("storeId",storeId);
+  b.put("name",p.name+" YC15");b.put("category",p.category);b.put("description",p.description);
+  b.put("price",p.price);b.put("stock",p.stock);b.put("calories",p.calories);
+  b.put("available",p.available);b.put("customizable",p.customizable);return b;
+ }
+ Map<String,Object> yc15VoucherBody(Voucher v,Long storeId){
+  Map<String,Object> b=new HashMap<>();b.put("id",v.id);b.put("storeId",storeId==null?"":storeId);
+  b.put("code",v.code);b.put("name",v.name+" updated");b.put("type",v.type);b.put("value",v.value);
+  b.put("minimum",v.minimum);b.put("maxDiscount",v.maxDiscount);b.put("usageLimit",v.usageLimit);
+  b.put("startsAt",v.startsAt.toString());b.put("endsAt",v.endsAt.toString());b.put("active",v.active);return b;
+ }
+ @Test void yc15CustomersOwnOrdersAndRejectCrossOwnerIds()throws Exception{
+  Account customerA=yc15Account("CUSTOMER",null),customerB=yc15Account("CUSTOMER",null);
+  MealOrder orderA=yc15Order(customerA,1L,null,"NEW"),orderB=yc15Order(customerB,2L,null,"NEW");
+  String tokenA=yc15Token(customerA),tokenB=yc15Token(customerB);
+  yc15Get(tokenA,"/orders/"+orderA.id).andExpect(status().isOk());
+  yc15Get(tokenB,"/orders/"+orderB.id).andExpect(status().isOk());
+  yc15Get(tokenA,"/orders/"+orderB.id).andExpect(status().isForbidden());
+  yc15Get(tokenB,"/orders/"+orderA.id).andExpect(status().isForbidden());
+  assertThat(yc15Ids(yc15Get(tokenA,"/orders").andExpect(status().isOk()).andReturn(),null))
+   .contains(orderA.id).doesNotContain(orderB.id);
+  assertThat(yc15Ids(yc15Get(tokenB,"/orders").andExpect(status().isOk()).andReturn(),null))
+   .contains(orderB.id).doesNotContain(orderA.id);
+  yc15Put(tokenA,"/orders/"+orderB.id+"/status",Map.of("status","CANCELLED")).andExpect(status().isForbidden());
+  yc15Put(tokenB,"/orders/"+orderA.id+"/status",Map.of("status","CANCELLED")).andExpect(status().isForbidden());
+  assertThat(orderA.status).isEqualTo("NEW");assertThat(orderB.status).isEqualTo("NEW");
+  yc15Put(tokenA,"/orders/"+orderA.id+"/status",Map.of("status","CANCELLED")).andExpect(status().isOk());
+ }
+ @Test void yc15BranchOperatorsCannotReadOrChangeForeignOrders()throws Exception{
+  Account customerA=yc15Account("CUSTOMER",null),customerB=yc15Account("CUSTOMER",null);
+  Account staffB=yc15Account("STAFF",2L),managerB=yc15Account("MANAGER",2L);
+  MealOrder orderA=yc15Order(customerA,1L,null,"NEW"),orderB=yc15Order(customerB,2L,null,"NEW");
+  String staffA=yc14Token("staff"),managerA=yc14Token("manager");
+  String staffBToken=yc15Token(staffB),managerBToken=yc15Token(managerB);
+  for(String token:List.of(staffA,managerA,yc14Token("vendor"))){
+   assertThat(yc15Ids(yc15Get(token,"/orders").andExpect(status().isOk()).andReturn(),null))
+    .contains(orderA.id).doesNotContain(orderB.id);
+   yc15Get(token,"/orders/"+orderB.id).andExpect(status().isForbidden());
+   yc15Put(token,"/orders/"+orderB.id+"/status",Map.of("status","CONFIRMED"))
+    .andExpect(status().isForbidden());
+  }
+  for(String token:List.of(staffBToken,managerBToken,yc14Token("vendor2"))){
+   assertThat(yc15Ids(yc15Get(token,"/orders").andExpect(status().isOk()).andReturn(),null))
+    .contains(orderB.id).doesNotContain(orderA.id);
+   yc15Get(token,"/orders/"+orderA.id).andExpect(status().isForbidden());
+   yc15Put(token,"/orders/"+orderA.id+"/status",Map.of("status","CONFIRMED"))
+    .andExpect(status().isForbidden());
+  }
+  yc15Put(staffA,"/orders/"+orderA.id+"/status",Map.of("status","CONFIRMED")).andExpect(status().isOk());
+  yc15Put(managerBToken,"/orders/"+orderB.id+"/status",Map.of("status","CONFIRMED")).andExpect(status().isOk());
+  assertThat(orderA.status).isEqualTo("CONFIRMED");assertThat(orderB.status).isEqualTo("CONFIRMED");
+  String admin=yc14Token("admin");
+  yc15Get(admin,"/orders/"+orderA.id).andExpect(status().isOk());
+  yc15Get(admin,"/orders/"+orderB.id).andExpect(status().isOk());
+ }
+ @Test void yc15ShipperListAndAssignmentRequireMatchingStore()throws Exception{
+  Account customer=yc15Account("CUSTOMER",null),shipperA=s.byEmail("shipper@uteb.vn");
+  Account shipperB=yc15Account("SHIPPER",2L),managerB=yc15Account("MANAGER",2L);
+  MealOrder orderA=yc15Order(customer,1L,null,"READY"),orderB=yc15Order(customer,2L,null,"READY");
+  String managerA=yc14Token("manager"),managerBToken=yc15Token(managerB),admin=yc14Token("admin");
+  assertThat(yc15Ids(yc15Get(managerA,"/admin/shippers").andExpect(status().isOk()).andReturn(),null))
+   .contains(shipperA.id).doesNotContain(shipperB.id);
+  assertThat(yc15Ids(yc15Get(managerBToken,"/admin/shippers").andExpect(status().isOk()).andReturn(),null))
+   .contains(shipperB.id).doesNotContain(shipperA.id);
+  assertThat(yc15Ids(yc15Get(admin,"/admin/shippers").andExpect(status().isOk()).andReturn(),null))
+   .contains(shipperA.id,shipperB.id);
+   yc15Put(managerA,"/orders/"+orderA.id+"/shipper",Map.of("shipperId",shipperB.id))
+    .andExpect(status().isBadRequest());
+   yc15Put(admin,"/orders/"+orderA.id+"/shipper",Map.of("shipperId",shipperB.id))
+    .andExpect(status().isBadRequest());
+  yc15Put(managerBToken,"/orders/"+orderA.id+"/shipper",Map.of("shipperId",shipperA.id))
+   .andExpect(status().isForbidden());
+  assertThat(orderA.shipperId).isNull();
+  yc15Put(managerA,"/orders/"+orderA.id+"/shipper",Map.of("shipperId",shipperA.id))
+   .andExpect(status().isOk());
+  yc15Put(admin,"/orders/"+orderB.id+"/shipper",Map.of("shipperId",shipperB.id))
+   .andExpect(status().isOk());
+  assertThat(orderA.shipperId).isEqualTo(shipperA.id);assertThat(orderB.shipperId).isEqualTo(shipperB.id);
+ }
+  @Test void yc15ShipperOrdersAndDashboardFollowAssignmentAcrossStores()throws Exception{
+  Account customerA=yc15Account("CUSTOMER",null),customerB=yc15Account("CUSTOMER",null);
+  Account shipperA=s.byEmail("shipper@uteb.vn"),shipperB=yc15Account("SHIPPER",2L);
+  MealOrder assignedA=yc15Order(customerA,1L,shipperA,"READY");
+  MealOrder unassignedA=yc15Order(customerA,1L,null,"READY");
+  MealOrder assignedB=yc15Order(customerB,2L,shipperB,"READY");
+  MealOrder wrongStore=yc15Order(customerB,2L,shipperA,"READY");
+  String tokenA=yc14Token("shipper"),tokenB=yc15Token(shipperB);
+  for(String path:List.of("/orders","/admin/dashboard")){
+   String field=path.equals("/orders")?null:"orders";
+    assertThat(yc15Ids(yc15Get(tokenA,path).andExpect(status().isOk()).andReturn(),field))
+     .contains(assignedA.id,wrongStore.id).doesNotContain(unassignedA.id,assignedB.id);
+   assertThat(yc15Ids(yc15Get(tokenB,path).andExpect(status().isOk()).andReturn(),field))
+    .contains(assignedB.id).doesNotContain(assignedA.id,unassignedA.id,wrongStore.id);
+  }
+   yc15Get(tokenA,"/orders/"+assignedA.id).andExpect(status().isOk());
+   yc15Get(tokenA,"/orders/"+wrongStore.id).andExpect(status().isOk());
+   for(MealOrder foreign:List.of(unassignedA,assignedB)){
+   yc15Get(tokenA,"/orders/"+foreign.id).andExpect(status().isForbidden());
+   yc15Put(tokenA,"/orders/"+foreign.id+"/status",Map.of("status","DELIVERING"))
+    .andExpect(status().isForbidden());
+   assertThat(foreign.status).isEqualTo("READY");
+  }
+  yc15Put(tokenA,"/orders/"+assignedA.id+"/status",Map.of("status","DELIVERING"))
+   .andExpect(status().isOk());
+  assertThat(assignedA.status).isEqualTo("DELIVERING");
+ }
+ @Test void yc15ProductsCheckExistingAndRequestedStore()throws Exception{
+  Product productA=custom(1L),productB=custom(2L);String managerA=yc14Token("manager");
+  String vendorB=yc14Token("vendor2"),admin=yc14Token("admin");
+  assertThat(yc15Ids(yc15Get(managerA,"/admin/products").andExpect(status().isOk()).andReturn(),null))
+   .contains(productA.id).doesNotContain(productB.id);
+  assertThat(yc15Ids(yc15Get(vendorB,"/admin/products").andExpect(status().isOk()).andReturn(),null))
+   .contains(productB.id).doesNotContain(productA.id);
+  yc15Post(managerA,"/admin/products",yc15ProductBody(productA,1L)).andExpect(status().isOk());
+  yc15Post(managerA,"/admin/products",yc15ProductBody(productB,1L)).andExpect(status().isForbidden());
+  yc15Post(managerA,"/admin/products",yc15ProductBody(productA,2L)).andExpect(status().isForbidden());
+  yc15Post(vendorB,"/admin/products",yc15ProductBody(productA,2L)).andExpect(status().isForbidden());
+  yc15Delete(managerA,"/admin/products/"+productB.id).andExpect(status().isForbidden());
+  assertThat(productA.storeId).isEqualTo(1L);assertThat(productB.storeId).isEqualTo(2L);
+  yc15Post(admin,"/admin/products",yc15ProductBody(productB,2L)).andExpect(status().isOk());
+ }
+ @Test void yc15VouchersAreStoreScopedAndGlobalRemainAdminOnly()throws Exception{
+  Voucher voucherA=yc15Voucher(1L),voucherB=yc15Voucher(2L),global=s.findVoucher("UTEB20");
+  String managerA=yc14Token("manager"),vendorB=yc14Token("vendor2"),admin=yc14Token("admin");
+  assertThat(yc15Ids(yc15Get(managerA,"/admin/vouchers").andExpect(status().isOk()).andReturn(),null))
+   .contains(voucherA.id).doesNotContain(voucherB.id,global.id);
+  assertThat(yc15Ids(yc15Get(vendorB,"/admin/vouchers").andExpect(status().isOk()).andReturn(),null))
+   .contains(voucherB.id).doesNotContain(voucherA.id,global.id);
+  assertThat(yc15Ids(yc15Get(admin,"/admin/vouchers").andExpect(status().isOk()).andReturn(),null))
+   .contains(voucherA.id,voucherB.id,global.id);
+  yc15Post(managerA,"/admin/vouchers",yc15VoucherBody(voucherA,1L)).andExpect(status().isOk());
+  yc15Post(vendorB,"/admin/vouchers",yc15VoucherBody(voucherB,2L)).andExpect(status().isOk());
+  yc15Post(managerA,"/admin/vouchers",yc15VoucherBody(voucherB,1L)).andExpect(status().isForbidden());
+  yc15Post(managerA,"/admin/vouchers",yc15VoucherBody(voucherA,2L)).andExpect(status().isForbidden());
+  yc15Post(vendorB,"/admin/vouchers",yc15VoucherBody(voucherA,2L)).andExpect(status().isForbidden());
+  yc15Delete(managerA,"/admin/vouchers/"+voucherB.id).andExpect(status().isForbidden());
+  yc15Delete(managerA,"/admin/vouchers/"+global.id).andExpect(status().isForbidden());
+  assertThat(voucherA.storeId).isEqualTo(1L);assertThat(voucherB.storeId).isEqualTo(2L);
+  yc15Post(admin,"/admin/vouchers",yc15VoucherBody(global,null)).andExpect(status().isOk());
+ }
+ @Test void yc15ManagersCannotSeeOrEditOtherBranchUsers()throws Exception{
+  Account staffA=yc15Account("STAFF",1L),staffB=yc15Account("STAFF",2L);
+  Account managerB=yc15Account("MANAGER",2L);
+  String managerA=yc14Token("manager"),managerBToken=yc15Token(managerB),admin=yc14Token("admin");
+  assertThat(yc15Ids(yc15Get(managerA,"/admin/users").andExpect(status().isOk()).andReturn(),null))
+   .contains(staffA.id).doesNotContain(staffB.id,managerB.id);
+  assertThat(yc15Ids(yc15Get(managerBToken,"/admin/users").andExpect(status().isOk()).andReturn(),null))
+   .contains(staffB.id).doesNotContain(staffA.id);
+  yc15Post(managerA,"/admin/users",yc14UserBody(staffA,"STAFF",true)).andExpect(status().isOk());
+  yc15Post(managerBToken,"/admin/users",yc14UserBody(staffB,"STAFF",true)).andExpect(status().isOk());
+  yc15Post(managerA,"/admin/users",yc14UserBody(staffB,"STAFF",false)).andExpect(status().isForbidden());
+  yc15Post(managerBToken,"/admin/users",yc14UserBody(staffA,"STAFF",false)).andExpect(status().isForbidden());
+  Map<String,Object> forged=yc14UserBody(staffA,"STAFF",true);forged.put("storeId",2);
+  yc15Post(managerA,"/admin/users",forged).andExpect(status().isOk());
+  assertThat(staffA.storeId).isEqualTo(1L);assertThat(staffB.storeId).isEqualTo(2L);
+  assertThat(staffA.active).isTrue();assertThat(staffB.active).isTrue();
+  yc15Post(admin,"/admin/users",yc14UserBody(staffB,"STAFF",true)).andExpect(status().isOk());
+ }
+ @Test void yc15MediaListAndReviewReferencesAreOwnerScoped()throws Exception{
+  Account customerA=yc15Account("CUSTOMER",null),customerB=yc15Account("CUSTOMER",null);
+  MediaRecord mediaA=yc15Media(customerA),mediaB=yc15Media(customerB);
+  String tokenA=yc15Token(customerA),tokenB=yc15Token(customerB),admin=yc14Token("admin");
+  assertThat(yc15Ids(yc15Get(tokenA,"/admin/media").andExpect(status().isOk()).andReturn(),null))
+   .contains(mediaA.id).doesNotContain(mediaB.id);
+  assertThat(yc15Ids(yc15Get(tokenB,"/admin/media").andExpect(status().isOk()).andReturn(),null))
+   .contains(mediaB.id).doesNotContain(mediaA.id);
+  assertThat(yc15Ids(yc15Get(admin,"/admin/media").andExpect(status().isOk()).andReturn(),null))
+   .contains(mediaA.id,mediaB.id);
+  MealOrder completed=yc15Order(customerA,1L,null,"COMPLETED");OrderLine line=new OrderLine();
+  line.orderId=completed.id;line.productId=custom(1L).id;line.name="YC15 product";
+  line.unitPrice=new BigDecimal("70000");line.quantity=1;s.save(line);
+  String text="Món ăn rất ngon, giao hàng nhanh và đóng gói cẩn thận. Tôi sẽ quay lại.";
+  Map<String,Object> foreign=Map.of("orderLineId",line.id,"stars",5,"text",text,"media",mediaB.url);
+  yc15Post(tokenA,"/reviews",foreign).andExpect(status().isBadRequest());
+  assertThat(s.where(Review.class,"orderLineId",line.id)).isEmpty();
+  yc15Post(tokenA,"/reviews",Map.of("orderLineId",line.id,"stars",5,"text",text,"media",mediaA.url))
+   .andExpect(status().isOk());
+  assertThat(s.where(Review.class,"orderLineId",line.id)).singleElement().extracting(r->r.media).isEqualTo(mediaA.url);
+ }
+ @Test void yc15OperationalListsKeepOnlyBranchRecords()throws Exception{
+  Account customer=yc15Account("CUSTOMER",null);MealOrder orderA=yc15Order(customer,1L,null,"NEW");
+  MealOrder orderB=yc15Order(customer,2L,null,"NEW");
+  RefundRequest refundA=new RefundRequest();refundA.orderId=orderA.id;refundA.userId=customer.id;
+  refundA.storeId=1L;refundA.reason="Scope A refund request";refundA.amount=BigDecimal.TEN;s.save(refundA);
+  RefundRequest refundB=new RefundRequest();refundB.orderId=orderB.id;refundB.userId=customer.id;
+  refundB.storeId=2L;refundB.reason="Scope B refund request";refundB.amount=BigDecimal.TEN;s.save(refundB);
+  CateringRequest cateringA=new CateringRequest();cateringA.userId=customer.id;cateringA.storeId=1L;
+  cateringA.packageName="Burrito Box";cateringA.contactName=customer.name;cateringA.phone=customer.phone;
+  cateringA.address="Address A";cateringA.eventAt="2030-01-01T12:00";cateringA.people=10;
+  cateringA.quotedTotal=BigDecimal.TEN;s.save(cateringA);
+  CateringRequest cateringB=new CateringRequest();cateringB.userId=customer.id;cateringB.storeId=2L;
+  cateringB.packageName="Burrito Box";cateringB.contactName=customer.name;cateringB.phone=customer.phone;
+  cateringB.address="Address B";cateringB.eventAt="2030-01-01T12:00";cateringB.people=10;
+  cateringB.quotedTotal=BigDecimal.TEN;s.save(cateringB);
+  String managerA=yc14Token("manager"),vendorB=yc14Token("vendor2"),admin=yc14Token("admin");
+  for(String resource:List.of("refunds","catering","stores")){
+   long idA=resource.equals("refunds")?refundA.id:resource.equals("catering")?cateringA.id:1L;
+   long idB=resource.equals("refunds")?refundB.id:resource.equals("catering")?cateringB.id:2L;
+   assertThat(yc15Ids(yc15Get(managerA,"/admin/"+resource).andExpect(status().isOk()).andReturn(),null))
+    .contains(idA).doesNotContain(idB);
+   assertThat(yc15Ids(yc15Get(vendorB,"/admin/"+resource).andExpect(status().isOk()).andReturn(),null))
+    .contains(idB).doesNotContain(idA);
+   assertThat(yc15Ids(yc15Get(admin,"/admin/"+resource).andExpect(status().isOk()).andReturn(),null))
+    .contains(idA,idB);
+  }
+  assertThat(yc15Ids(yc15Get(managerA,"/admin/dashboard").andExpect(status().isOk()).andReturn(),"orders"))
+   .contains(orderA.id).doesNotContain(orderB.id);
+  assertThat(yc15Ids(yc15Get(vendorB,"/admin/dashboard").andExpect(status().isOk()).andReturn(),"orders"))
+   .contains(orderB.id).doesNotContain(orderA.id);
+  assertThat(yc15Ids(yc15Get(admin,"/admin/dashboard").andExpect(status().isOk()).andReturn(),"orders"))
+   .contains(orderA.id,orderB.id);
+ }
+ @Test void yc16RegistrationVerificationThenLoginPreservesCustomerRole()throws Exception{
+  registerRequest(registration()).andExpect(status().isOk());
+  String code=registrationOtp();Account account=registeredAccount();
+  assertThat(account.verified).isFalse();
+  mvc.perform(post("/api/auth/login").contentType("application/json")
+   .content(loginBody(account.email,"Register@123"))).andExpect(status().isBadRequest());
+  otpSubmit(Map.of("email",account.email,"otp",code)).andExpect(status().isOk());
+  assertThat(registeredAccount().verified).isTrue();
+  String token=loginToken(passwordApiLogin(account.email,"Register@123"));
+  yc15Get(token,"/account").andExpect(status().isOk())
+   .andExpect(jsonPath("$.user.email").value(account.email))
+   .andExpect(jsonPath("$.user.roles").value("CUSTOMER"));
+  yc15Get(token,"/admin/users").andExpect(status().isForbidden());
+ }
+ @Test void yc16AdminRoleChangeRevokesOldJwtAndOldSessionAuthority()throws Exception{
+  Account manager=yc15Account("MANAGER",1L);
+  MvcResult webLogin=passwordWebLogin(manager.email,"Original@123");
+  String oldJwt=loginToken(webLogin);
+  MockHttpSession session=(MockHttpSession)webLogin.getRequest().getSession(false);
+  yc15Get(oldJwt,"/admin/users").andExpect(status().isOk());
+  SecurityContextHolder.clearContext();
+  mvc.perform(get("/shop-api/admin/users").session(session)).andExpect(status().isOk());
+  yc15Post(yc14Token("admin"),"/admin/users",yc14UserBody(manager,"CUSTOMER",true))
+   .andExpect(status().isOk());
+  assertThat(manager.roles).isEqualTo("CUSTOMER");
+  yc15Get(oldJwt,"/admin/users").andExpect(status().isUnauthorized());
+  SecurityContextHolder.clearContext();
+   mvc.perform(get("/shop-api/admin/users").session(session)).andExpect(status().isUnauthorized());
+  String newJwt=yc15Token(manager);
+  yc15Get(newJwt,"/account").andExpect(status().isOk())
+   .andExpect(jsonPath("$.user.roles").value("CUSTOMER"));
+  yc15Get(newJwt,"/admin/users").andExpect(status().isForbidden());
+ }
+ @Test void yc16LockAfterLoginRejectsExistingJwtAndSession()throws Exception{
+  Account account=yc15Account("CUSTOMER",null);
+  MvcResult webLogin=passwordWebLogin(account.email,"Original@123");
+  String jwt=loginToken(webLogin);MockHttpSession session=(MockHttpSession)webLogin.getRequest().getSession(false);
+  yc15Get(jwt,"/account").andExpect(status().isOk());
+  account.active=false;registrationEm.flush();registrationEm.clear();
+  yc15Get(jwt,"/account").andExpect(status().isUnauthorized());
+  SecurityContextHolder.clearContext();
+  mvc.perform(get("/shop-api/account").session(session)).andExpect(status().isUnauthorized());
+  mvc.perform(post("/api/auth/login").contentType("application/json")
+   .content(loginBody(account.email,"Original@123"))).andExpect(status().isBadRequest());
+ }
+ void yc16AssertCredentialFieldsHidden(com.fasterxml.jackson.databind.JsonNode user){
+  for(String field:List.of("passwordHash","otpHash","otpPurpose","otpExpires","otpSent","otpAttempts","tokenVersion"))
+   assertThat(user.has(field)).as(field).isFalse();
+ }
+ @Test void yc16AccountResponsesHideCredentialAndOtpState()throws Exception{
+  Account account=yc15Account("CUSTOMER",null);
+  account.otpHash=s.hashPassword("654321");account.otpPurpose="RESET";
+  account.otpSent=java.time.LocalDateTime.now();account.otpExpires=account.otpSent.plusMinutes(5);
+  account.otpAttempts=2;
+  MvcResult login=passwordApiLogin(account.email,"Original@123");
+  yc16AssertCredentialFieldsHidden(json.readTree(login.getResponse().getContentAsByteArray()).get("user"));
+  String token=loginToken(login);
+  MvcResult own=yc15Get(token,"/account").andExpect(status().isOk()).andReturn();
+  yc16AssertCredentialFieldsHidden(json.readTree(own.getResponse().getContentAsByteArray()).get("user"));
+  MvcResult users=yc15Get(yc14Token("admin"),"/admin/users").andExpect(status().isOk()).andReturn();
+  boolean found=false;
+  for(var user:json.readTree(users.getResponse().getContentAsByteArray()))
+   if(account.email.equals(user.get("email").asText())){yc16AssertCredentialFieldsHidden(user);found=true;}
+  assertThat(found).isTrue();
+ }
+ @Test void yc16ResentOtpReplacesOldCodeBeforeVerification()throws Exception{
+  Account account=otpAccount("VERIFY");
+  try(var random=mockConstruction(java.security.SecureRandom.class,
+   (mock,context)->when(mock.nextInt(1000000)).thenReturn(654321))){
+   otpSend(Map.of("email",account.email,"purpose","VERIFY")).andExpect(status().isOk());
+  }
+  assertThat(otpCode(otpMessage())).isEqualTo("654321");
+  otpSubmit(Map.of("email",account.email,"otp","123456")).andExpect(status().isBadRequest());
+  assertThat(otpReload(account.email).verified).isFalse();
+  otpSubmit(Map.of("email",account.email,"otp","654321")).andExpect(status().isOk());
+  assertThat(otpReload(account.email).verified).isTrue();
  }
  Product custom(Long store){return s.all(Product.class).stream().filter(p->p.storeId.equals(store)&&p.customizable&&p.available).findFirst().orElseThrow();}
  String ingredients(){return List.of("PROTEIN","RICE","BEANS","SAUCE").stream().map(g->s.all(Ingredient.class).stream().filter(i->i.groupName.equals(g)&&i.price.signum()==0).findFirst().orElseThrow().id.toString()).collect(java.util.stream.Collectors.joining(","));}
