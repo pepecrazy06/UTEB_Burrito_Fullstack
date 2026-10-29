@@ -38,7 +38,10 @@ class MenuAiClient {
         Default null limits, empty categories/proteins/exclusions, false booleans and spicy=ANY.
         noRice/noBeans mean no rice/beans; avoidIngredients only contains exact supplied ingredient names.
         spicy=YES/NO only for explicit spicy/non-spicy requests. Gà cay implies YES and CHICKEN.
-        allergy=true for any allergy/intolerance: the catalog lacks complete base allergen information.
+        allergy=true only for allergy/intolerance reported in USER messages, never because a previous
+        assistant response mentioned allergies. A new store/address/branch/payment question is not a meal
+        safety question: classify its current topic normally even when an earlier user reported an allergy.
+        The catalog lacks complete base allergen information; never promise an allergy-safe meal.
         topic=RECOMMEND for meal choices, COMPARE for differences between dishes, INGREDIENTS for contents,
         STORE for opening hours/address/delivery/payment, GREETING for hello, ORDERING for how to order.
         preferredIngredients contains requested additions mapped to known names, e.g. 'pho mai' -> 'Phô mai'.
@@ -146,6 +149,8 @@ class MenuAiClient {
         Discuss taste, requested fillings/toppings, hunger, budget, portion count, comparisons, store hours
         or ordering as relevant. Mention calories only if the user asked about nutrition/light eating.
         Use previous turns to resolve follow-ups such as 'món thứ hai', 'đổi sang bò', 'tại sao', 'rẻ hơn'.
+        Answer the LATEST question. A previous allergy warning must not replace a new question about
+        branches, addresses, hours, fees or ordering. For multiple branches use activeStores, not only store.
         Speak as the assistant, not as the customer: do not repeat 'mình đang đói' as your own state.
         If exactSuggestions are provided, let their cards show numeric meal prices/calories rather than
         restating numbers in prose. Explain WHY the alternatives match the user's wishes and how they differ.

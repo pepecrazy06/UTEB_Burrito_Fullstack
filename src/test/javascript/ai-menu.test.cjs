@@ -76,3 +76,8 @@ test('a group recommendation cannot be accepted after stock falls below the requ
  c.state.data={ingredients:[]};c.state.aiMenu={storeId:1,result:{items:[{productId:1,storeId:1,quantity:2,ingredientIds:[]}]}};
  await assert.rejects(c.chooseAiMenu(0),/tồn kho/);assert.equal(opened,false);
 });
+test('long factual replies remain visible but are bounded in the next conversation request',async()=>{
+ const calls=[];const full='Thông tin chi nhánh '.repeat(160);const c=chatContext(async(path,method,body)=>{calls.push(body);return {message:full,items:[],criteria:[]};});
+ await c.submitAiMenu({message:'Danh sách các chi nhánh'});await c.submitAiMenu({message:'Giờ mở cửa?'});
+ assert.equal(c.aiState().turns[0].result.message,full);assert.equal(calls[1].conversation[0].answer.length,2000);
+});

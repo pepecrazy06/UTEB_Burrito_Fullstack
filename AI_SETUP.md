@@ -46,4 +46,14 @@ Lần gọi đầu có thể chậm vì nạp mô hình vào RAM. Không đẩy 
 
 API không tự thêm giỏ hoặc đặt đơn: khách xem cấu hình, chỉnh nếu muốn rồi tự thêm vào giỏ. Dữ liệu AI chỉ giữ trong phiên trang, không lưu lịch sử nhu cầu vào database. Nếu mô hình không tạo được đoạn trả lời, phần gợi ý đã kiểm giá/nguyên liệu vẫn được giữ lại. Trợ lý chưa khẳng định món an toàn với dị ứng hoặc đủ gram protein vì dữ liệu phần nền chưa đầy đủ; cần xác nhận trực tiếp với cửa hàng.
 
+## Thông tin cửa hàng và ngữ cảnh dị ứng
+
+Các câu hỏi thông tin phổ biến đọc trực tiếp dữ liệu công khai đang có: danh sách chi nhánh hoạt động, địa chỉ, giờ phục vụ, điện thoại, phương thức nhận món, nhà vận chuyển và mã ưu đãi còn hiệu lực của cửa hàng đang chọn. Không cần tự train lại trọng số mô hình để cập nhật những dữ liệu này; thay đổi ở trang quản trị được đọc trong lần hỏi tiếp theo. Phần tư vấn món vẫn dùng Ollama miễn phí.
+
+- Hỏi “dị ứng bò”, sau đó “đưa ra danh sách các chi nhánh”: câu sau trả danh sách cửa hàng, không lặp cảnh báo dị ứng.
+- Hỏi “Chi nhánh Quận 1 ở đâu, số điện thoại và giờ mở cửa?”: thông tin đúng chi nhánh được hỏi, kể cả đang chọn Võ Văn Ngân.
+- Hỏi về phí giao, COD/VNPay, cách đặt món, OTP hoặc mã giảm giá: trả đúng chức năng đang có. Mã cá nhân không được đưa vào danh sách ưu đãi công khai.
+- Với dị ứng, chỉ đối chiếu những tên/nhãn nguyên liệu và mô tả món hiện có. Phân biệt bò với bơ; không biến món khách muốn ăn ở lượt sau thành chất gây dị ứng mới. Giữ hạn chế đã khai báo cho câu hỏi về món tiếp theo, nhưng không chặn câu hỏi khác về cửa hàng.
+- Nếu khách chưa nói dị ứng nguyên liệu nào, hỏi rõ một lần. Nếu nguyên liệu chưa có nhãn, ghi nhận đúng tên và hướng dẫn xác nhận trực tiếp với cửa hàng. Không khẳng định món còn lại an toàn khi dữ liệu phần nền/cách chuẩn bị chưa đầy đủ.
+
 Tài liệu: https://docs.ollama.com/capabilities/structured-outputs và https://ollama.com/library/qwen3:4b-instruct.

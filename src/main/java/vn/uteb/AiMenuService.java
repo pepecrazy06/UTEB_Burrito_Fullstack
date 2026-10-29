@@ -24,9 +24,11 @@ class AiMenuService {
         Store store=shop.get(Store.class,storeId);
         require(store.active,"Chi nhánh đang tạm ngừng phục vụ.");
         List<Ingredient> ingredients=shop.all(Ingredient.class);
+        String publicAnswer=AiPublicKnowledge.answer(shop,store,ingredients,message,previous,conversation);
+        if(publicAnswer!=null)return reply(publicAnswer,List.of(),List.of());
         List<String> ingredientNames=ingredients.stream().map(i->i.name).toList();
         MenuPreferences preferences=conversation.isEmpty()?ai.understand(message,previous,ingredientNames):ai.understand(message,previous,ingredientNames,conversation);
-        if(preferences.allergy()) return reply("Thực đơn chưa có thông tin đầy đủ về chất gây dị ứng trong phần nền. Bạn hãy xác nhận trực tiếp với cửa hàng trước khi chọn món.",List.of(),List.of());
+        if(preferences.allergy()&&!Set.of("STORE","ORDERING","GREETING").contains(preferences.topic())) return reply(AiPublicKnowledge.allergy(shop,store,ingredients,AiPublicKnowledge.requests(previous,conversation,message)),List.of(),List.of());
         if(!"FOOD".equals(preferences.intent())) return reply("CLARIFY".equals(preferences.intent())&&!preferences.clarification().isBlank()
             ? preferences.clarification():"Mình là trợ lý món ăn UTEB: có thể gợi ý theo món bạn thèm, khẩu vị, ngân sách, so sánh món hoặc giải thích cách đặt hàng. Bạn đang muốn ăn gì?",List.of(),List.of());
         List<String> criteria=criteria(preferences);
@@ -61,6 +63,7 @@ class AiMenuService {
         Map<String,Object> facts=new LinkedHashMap<>();
         Map<String,Object> storeFacts=new LinkedHashMap<>();storeFacts.put("name",store.name);storeFacts.put("address",store.address);storeFacts.put("hours",store.hours);storeFacts.put("phone",store.phone);storeFacts.put("pickup",store.pickup);storeFacts.put("delivery",store.delivery);storeFacts.put("internalDeliveryFee",store.deliveryFee);
         facts.put("store",storeFacts);facts.put("preferences",preferences);facts.put("exactSuggestions",items);
+        facts.put("activeStores",shop.all(Store.class).stream().filter(s->s.active).map(s->Map.of("name",s.name,"address",Objects.toString(s.address,""),"hours",Objects.toString(s.hours,""),"phone",Objects.toString(s.phone,""),"pickup",s.pickup,"delivery",s.delivery)).toList());
         boolean explainMenu=Set.of("COMPARE","INGREDIENTS").contains(preferences.topic())||suggest&&items.isEmpty();
         Set<Object> suggestedIds=new HashSet<>(items.stream().map(i->i.get("productId")).toList());
         facts.put("availableMenu",explainMenu?menu.stream()

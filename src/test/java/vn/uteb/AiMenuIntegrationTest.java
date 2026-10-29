@@ -67,9 +67,8 @@ class AiMenuIntegrationTest {
     }
     MenuPreferences extended(String topic,String goal,int servings,Integer budget){return new MenuPreferences("FOOD",List.of("CHICKEN"),List.of(),false,false,null,null,null,List.of(),false,false,"ANY",List.of(),false,"",topic,goal,List.of(),List.of(),servings,budget);}
     @Test void storeQuestionGetsAnAnswerWithoutUnrelatedCalorieRecommendations(){
-        when(model.understand(anyString(),anyList(),anyList())).thenReturn(extended("STORE","BALANCED",1,null));when(model.respond(anyString(),anyList(),anyMap())).thenReturn("Cửa hàng mở 10:00–22:00, bạn muốn đến lấy hay giao tận nơi?");
         var result=service.recommend(1,"Cửa hàng mở mấy giờ?",List.of());assertThat((List<?>)result.get("items")).isEmpty();assertThat(result.get("message").toString()).contains("10:00").doesNotContain("kcal");
-        var facts=org.mockito.ArgumentCaptor.forClass(Map.class);verify(model).respond(eq("Cửa hàng mở mấy giờ?"),anyList(),facts.capture());assertThat(facts.getValue().keySet()).contains("store","availableMenu","exactSuggestions").doesNotContain("accounts","SMTP_PASSWORD","DB_PASSWORD");
+        verify(model,never()).understand(anyString(),anyList(),anyList());verify(model,never()).respond(anyString(),anyList(),anyMap());
     }
     @Test void groupRecommendationsExposeExactTotalsAndDoNotForceCaloriesIntoNormalConversation(){
         when(model.understand(anyString(),anyList(),anyList())).thenReturn(extended("RECOMMEND","FILLING",2,200000));
@@ -96,5 +95,58 @@ class AiMenuIntegrationTest {
         when(model.respond(anyString(),anyList(),anyMap())).thenReturn("Tacos phù hợp, còn Salad và Bowl vượt quá ngân sách hoặc có nguyên liệu không mong muốn.");
         var result=service.recommend(1,"Hai người ăn trong 200k, thích gà",List.of());
         assertThat((List<?>)result.get("items")).isNotEmpty();assertThat(result.get("message").toString()).contains("2 phần cùng món").doesNotContain("vượt quá","không mong muốn");
+    }
+    @Test void branchListAfterBeefAllergyAnswersTheNewQuestionFromSqlWithoutModelGuessing(){
+        var history=List.of(new AiConversationTurn("dị ứng bò","Cần xác nhận trực tiếp với cửa hàng",List.of()));
+        var result=service.recommend(1,"đưa ra danh sách các chi nhánh",List.of(),history);
+        String text=result.get("message").toString();for(Store store:shop.all(Store.class))if(store.active)assertThat(text).contains(store.name,store.address);
+        assertThat(text).contains("Đổi cửa hàng").doesNotContain("dị ứng","phần nền");assertThat((List<?>)result.get("items")).isEmpty();
+        verify(model,never()).understand(anyString(),anyList(),anyList(),anyList());verify(model,never()).respond(anyString(),anyList(),anyMap());
+    }
+    @Test void inactiveStoresAreNotDisclosedByTheBranchList(){
+        Store hidden=shop.get(Store.class,2);hidden.active=false;em.flush();
+        var result=service.recommend(1,"Liệt kê tất cả cửa hàng UTEB",List.of());assertThat(result.get("message").toString()).doesNotContain(hidden.name);
+    }
+    @Test void specificBranchHoursAndPhoneAreNotReplacedByTheCurrentlySelectedStore(){
+        Store target=shop.get(Store.class,2);target.hours="08:00–20:00";target.phone="0908888777";em.flush();
+        var result=service.recommend(1,"Chi nhánh Quận 1 ở đâu, số điện thoại và giờ mở cửa?",List.of("Tôi dị ứng bò"));
+        assertThat(result.get("message").toString()).contains(target.name,target.address,"08:00–20:00","0908888777").doesNotContain("dị ứng");
+    }
+    @Test void beefAllergyNamesKnownBeefWithoutClaimingOtherMealsAreSafe(){
+        var result=service.recommend(1,"dị ứng bò",List.of());String text=result.get("message").toString();
+        assertThat(text).contains("bò","Bò BBQ","xác nhận trực tiếp").doesNotContain("an toàn tuyệt đối");assertThat((List<?>)result.get("items")).isEmpty();
+        verify(model,never()).understand(anyString(),anyList(),anyList());
+    }
+    @Test void ingredientAllergenLabelsAreUsedForMilkAndDoNotMistakeAvocadoForBeef(){
+        var milk=service.recommend(1,"Mình dị ứng sữa",List.of());assertThat(milk.get("message").toString()).contains("Phô mai","Kem chua");
+        var avocado=service.recommend(1,"dị ứng bơ",List.of());assertThat(avocado.get("message").toString()).contains("Guacamole").doesNotContain("Bò BBQ");
+    }
+    @Test void paymentShippingAndOrderingQuestionsStillWorkAfterAnAllergyTurn(){
+        List<String> previous=List.of("Tôi dị ứng bò");
+        assertThat(service.recommend(1,"Có thanh toán MoMo không?",previous).get("message").toString()).contains("COD","VNPay","không còn MoMo");
+        assertThat(service.recommend(1,"Phí giao hàng là bao nhiêu?",previous).get("message").toString()).contains("150.000","chi nhánh");
+        assertThat(service.recommend(1,"Hướng dẫn đặt món",previous).get("message").toString()).contains("Giỏ hàng","Đơn của tôi");
+    }
+    @Test void publicPromotionsExcludePrivateExpiredForeignAndInactiveCodes(){
+        Voucher valid=new Voucher();valid.code="PUBLICQA";valid.storeId=1L;valid.value=java.math.BigDecimal.TEN;em.persist(valid);
+        Voucher foreign=new Voucher();foreign.code="FOREIGNQA";foreign.storeId=2L;em.persist(foreign);
+        Voucher expired=new Voucher();expired.code="EXPIREDQA";expired.endsAt=java.time.LocalDateTime.now().minusDays(1);em.persist(expired);
+        Voucher personal=new Voucher();personal.code="PERSONALQA";personal.userId=999L;em.persist(personal);
+        Voucher disabled=new Voucher();disabled.code="DISABLEDQA";disabled.active=false;em.persist(disabled);em.flush();
+        String answer=service.recommend(1,"Có mã giảm giá nào không?",List.of("dị ứng bò")).get("message").toString();
+        assertThat(answer).contains("PUBLICQA").doesNotContain("FOREIGNQA","EXPIREDQA","PERSONALQA","DISABLEDQA");
+    }
+    @Test void generalMealResponsesReceivePublicActiveStoreFactsOnly(){
+        service.recommend(1,"Thèm gà",List.of());var facts=org.mockito.ArgumentCaptor.forClass(Map.class);verify(model).respond(anyString(),anyList(),facts.capture());
+        assertThat(facts.getValue().keySet()).contains("activeStores","store").doesNotContain("accounts","SMTP_PASSWORD","DB_PASSWORD");
+    }
+    @Test void laterFoodWishesDoNotBecomeAdditionalReportedAllergies(){
+        var history=List.of(new AiConversationTurn("Dị ứng bò","Thông tin các món có bò",List.of()));
+        String answer=service.recommend(1,"Tôi muốn gà thêm bơ",List.of(),history).get("message").toString();
+        assertThat(answer).contains("dị ứng hoặc không dung nạp bò").doesNotContain("bò, bơ","Guacamole");
+    }
+    @Test void unknownAllergenIsAcknowledgedWithoutInventingALabelOrRepeatedlyAskingForItsName(){
+        String answer=service.recommend(1,"Tôi dị ứng hải sản",List.of()).get("message").toString();
+        assertThat(answer).contains("hải sản","chưa thể khẳng định").doesNotContain("Bạn dị ứng hoặc không dung nạp nguyên liệu nào?");
     }
 }

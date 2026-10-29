@@ -60,4 +60,17 @@ class MenuPreferenceResolverTest {
   var p=MenuPreferenceResolver.resolve(model("STORE",List.of("Trứng","Phô mai"),null,null,1,null),"Có burrito trứng phô mai không?",List.of(),List.of(),ingredients);
   assertThat(p.topic()).isEqualTo("INGREDIENTS");assertThat(p.productKeywords()).contains("trứng");
  }
+ @Test void modelCannotInferAllergyFromAnEarlierAssistantWarning(){
+  var history=List.of(new AiConversationTurn("Cho tôi các chi nhánh","Dữ liệu dị ứng chưa đầy đủ",List.of()));
+  assertThat(AiPublicKnowledge.hasAllergy(AiPublicKnowledge.requests(List.of(),history,"Thèm gà"))).isFalse();
+ }
+ @Test void reportedAllergyIsRetainedForMealsButCanBeExplicitlyCorrected(){
+  assertThat(AiPublicKnowledge.hasAllergy(List.of("dị ứng bò","Thèm gà"))).isTrue();
+  assertThat(AiPublicKnowledge.hasAllergy(List.of("dị ứng bò","Không bị dị ứng, chỉ không thích bò"))).isFalse();
+  assertThat(AiPublicKnowledge.hasAllergy(List.of("Không dị ứng bò nhưng dị ứng sữa"))).isTrue();
+ }
+ @Test void intoleranceAndUnknownAllergenStillRequireConfirmation(){
+  assertThat(AiPublicKnowledge.hasAllergy(List.of("Không dung nạp lactose"))).isTrue();
+  assertThat(AiPublicKnowledge.hasAllergy(List.of("dị ứng hải sản"))).isTrue();
+ }
 }

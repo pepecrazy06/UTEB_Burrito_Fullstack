@@ -53,7 +53,7 @@ function resetAiChat(){const a=aiState();if(a.busy)return;a.request++;a.messages
 async function submitAiMenu(form){
  const a=aiState(),message=String(new FormData(form).get('message')||'').trim();requireClient(message.length>0&&message.length<=1000,'Hãy mô tả nhu cầu trong 1–1.000 ký tự.');
  if(a.busy)return;requireClient(a.available===true,'Trợ lý chưa sẵn sàng. Bạn hãy thử kết nối lại sau.');
- const request=++a.request,storeId=state.storeId,turn={id:++a.nextTurn,user:message,result:null,error:null},previous=a.messages.slice(-4),conversation=a.turns.filter(t=>t.result).slice(-4).map(t=>({user:t.user,answer:t.result.message,dishes:(t.result.items||[]).slice(0,3).map(item=>(item.name+' — '+item.customization).slice(0,255))}));
+ const request=++a.request,storeId=state.storeId,turn={id:++a.nextTurn,user:message,result:null,error:null},previous=a.messages.slice(-4),conversation=a.turns.filter(t=>t.result).slice(-4).map(t=>({user:t.user,answer:String(t.result.message||'').slice(0,2000),dishes:(t.result.items||[]).slice(0,3).map(item=>(item.name+' — '+item.customization).slice(0,255))}));
  a.turns.push(turn);a.turns=a.turns.slice(-12);a.busy=true;a.draft='';paintAiChat(true);
  try{const result=await api('/public/ai/recommend','POST',{storeId,message,previousMessages:previous,conversation});if(request!==a.request||storeId!==state.storeId)return;turn.result=result;a.result=result;a.messages=[...a.messages,message].slice(-4);}
  catch(error){if(request===a.request&&storeId===state.storeId){turn.error=error.message;if(error.status===503)a.available=false;}}

@@ -81,7 +81,7 @@ final class MenuPreferenceResolver {
         boolean light=source.contains("it calo")||source.contains("giam calo");
         if(plain(message).matches("(?s).*(khong can an kieng|khong can kieng|khong can it calo).*"))light=false;
         return new MenuPreferences(intent,explicitProteins,List.copyOf(excluded),vegetarian,light,min,max,price,categories,
-            noRice,noBeans,spicy,avoid.stream().distinct().toList(),p.allergy(),clarification,topic,p.goal(),likes.stream().distinct().toList(),keywords.stream().distinct().toList(),servings,total);
+            noRice,noBeans,spicy,avoid.stream().distinct().toList(),AiPublicKnowledge.hasAllergy(requests),clarification,topic,p.goal(),likes.stream().distinct().toList(),keywords.stream().distinct().toList(),servings,total);
     }
     private static boolean mentioned(String key,String source,String original){
         return switch(key){case "guacamole"->source.contains("guacamole")||source.contains("avocado")||original.contains("bơ");case "pho mai"->source.contains("pho mai")||source.contains("cheese");case "kem chua"->source.contains("kem chua")||source.contains("sour cream");default->source.contains(key);};
