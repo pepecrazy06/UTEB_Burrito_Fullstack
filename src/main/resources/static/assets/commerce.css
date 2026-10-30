@@ -1,0 +1,21 @@
+.commerce-product-detail{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:2.5rem;align-items:center}
+.commerce-detail-photo{width:100%;max-height:460px;object-fit:contain}
+.commerce-shop-intro{overflow:hidden}
+.commerce-shop-banner{display:block;width:100%;max-height:300px;object-fit:cover;margin-bottom:1.5rem}
+.commerce-shop-heading{display:flex;align-items:flex-start;gap:1.5rem}
+.commerce-shop-heading>img{width:100px;height:100px;object-fit:contain;flex-shrink:0}
+.commerce-preserve-lines{white-space:pre-line;overflow-wrap:anywhere}
+.commerce-small-select{width:auto;max-width:100%}
+.commerce-search{display:flex;gap:.75rem}
+.commerce-image-preview{display:block;max-width:100%;height:100px;object-fit:contain;margin-bottom:.75rem}
+.commerce-product-metrics{font-size:.8rem;color:#71665e;margin-top:.5rem}
+.commerce-home-ranking{margin-top:3rem}
+.recipe-fields{grid-column:1/-1;min-width:0;border:1px solid var(--line);padding:18px}
+.recipe-fields legend{float:none;width:auto;font-size:1rem;font-weight:700}
+.recipe-options{display:flex;flex-wrap:wrap;gap:10px 20px;margin:10px 0 18px}
+.home-products .product-card{display:flex;flex-direction:column}
+.home-products .product-body{display:flex;flex:1;flex-direction:column}
+.home-products .product-bottom{display:grid;grid-template-columns:minmax(0,1fr) auto;margin-top:auto;padding-top:18px}
+.home-products .product-price,.home-products .add-button{white-space:nowrap}
+@media(max-width:760px){.home-products .product-bottom{grid-template-columns:1fr}.home-products .add-button{width:100%}}
+@media(max-width:700px){.commerce-product-detail{grid-template-columns:1fr;gap:1.5rem}.commerce-shop-heading{flex-direction:column}.commerce-search{flex-wrap:wrap}.commerce-search .form-control{flex:1;min-width:140px}}

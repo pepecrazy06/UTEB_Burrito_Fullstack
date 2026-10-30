@@ -40,16 +40,30 @@ class AiMenuController {
                 previous.add((String)value);
             }
         }
+        List<AiConversationTurn> conversation=new ArrayList<>();
+        Object history=body.get("conversation");
+        if(history!=null){
+            require(history instanceof List<?> && ((List<?>)history).size()<=4,"Tối đa 4 lượt trao đổi gần nhất.");
+            for(Object raw:(List<?>)history){
+                require(raw instanceof Map<?,?>,"Lịch sử trò chuyện không hợp lệ.");Map<?,?> turn=(Map<?,?>)raw;
+                require(turn.get("user") instanceof String&&turn.get("answer") instanceof String,"Lịch sử trò chuyện không hợp lệ.");
+                String user=(String)turn.get("user"),answer=(String)turn.get("answer");
+                require(!user.isBlank()&&user.length()<=1000&&!answer.isBlank()&&answer.length()<=2000,"Lượt trò chuyện quá dài hoặc trống.");
+                Object names=turn.get("dishes");List<String> dishes=new ArrayList<>();
+                if(names!=null){require(names instanceof List<?> && ((List<?>)names).size()<=3,"Tối đa 3 món trong lượt trước.");for(Object name:(List<?>)names){require(name instanceof String&&!((String)name).isBlank()&&((String)name).length()<=255,"Tên món trong lịch sử không hợp lệ.");dishes.add((String)name);}}
+                conversation.add(new AiConversationTurn(user,answer,dishes));
+            }
+        }
         if(!service.configured()) throw MenuAiClient.unavailable("Trợ lý AI chưa sẵn sàng. Vui lòng chọn món từ thực đơn hoặc quay lại sau.");
         if(!concurrency.tryAcquire()) throw busy();
-        try { reserve(request.getRemoteAddr()); return service.recommend(storeId,message,previous); }
+        try { reserve(request.getRemoteAddr()); return service.recommend(storeId,message,previous,conversation); }
         finally { concurrency.release(); }
     }
     synchronized void reserve(String address) {
         long now=System.currentTimeMillis();
         LocalDate today=LocalDate.now(ZoneOffset.UTC);
         if(!today.equals(day)) { day=today; dailyCount=0; }
-        recent.entrySet().removeIf(e->now-e.getValue()>=10000);
+        recent.entrySet().removeIf(e->now-e.getValue()>=1000);
         if(dailyCount>=dailyLimit||recent.size()>=10000||recent.containsKey(address)) throw busy();
         recent.put(address,now); dailyCount++;
     }

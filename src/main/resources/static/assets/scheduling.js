@@ -28,13 +28,13 @@ function checkoutStores(){
 function showCheckoutHours(stores=checkoutStores()){
  const target=document.querySelector('#checkout-hours');if(!target)return;
  target.innerHTML=`<strong>Chi nhánh chuẩn bị đơn và giờ hoạt động:</strong>${stores.map(store=>`<div>${esc(store.name)}: ${esc(store.hours||'Chưa có giờ hoạt động hợp lệ')}</div>`).join('')}
-  <div class="mt-2">Giờ hẹn tính theo giờ Việt Nam (UTC+7). Nhận từ giờ mở cửa, không nhận đúng giờ đóng cửa. Hẹn sau hơn 30 phút và trước 7 ngày; giỏ nhiều chi nhánh cần phù hợp với tất cả chi nhánh.</div>`;
+  <div class="mt-2">Giờ hẹn tính theo giờ Việt Nam (UTC+7). Nhận từ giờ mở cửa, không nhận đúng giờ đóng cửa. Hẹn sau hơn ${state.data.businessRules?.schedule_lead_minutes??30} phút và trước ${state.data.businessRules?.schedule_max_days??7} ngày; giỏ nhiều chi nhánh cần phù hợp với tất cả chi nhánh.</div>`;
 }
 function syncScheduleFields(){
  const form=document.querySelector('#checkout-form');if(!form)return;
  const input=form.elements.scheduledAt,scheduled=form.elements.scheduleMode.value==='SCHEDULE';
  input.parentElement.hidden=!scheduled;input.required=scheduled;input.disabled=!scheduled;input.step='60';
- input.min=vietnamDateTime(Date.now()+31*60000);input.max=vietnamDateTime(Date.now()+7*86400000-1);
+ input.min=vietnamDateTime(Date.now()+(Number(state.data.businessRules?.schedule_lead_minutes??30)+1)*60000);input.max=vietnamDateTime(Date.now()+Number(state.data.businessRules?.schedule_max_days??7)*86400000-1);
  input.setAttribute('aria-describedby','checkout-hours checkout-error');
  const delivery=document.querySelector('#delivery-fields');if(delivery)delivery.hidden=form.elements.type.value==='PICKUP';
  showCheckoutHours();

@@ -93,7 +93,7 @@ class OrderCancellationTest {
         mvc.perform(put("/api/orders/"+order.id+"/status").with(user(admin.email)).contentType("application/json").content("{\"status\":\"CONFIRMED\"}")).andExpect(status().isOk());
         confirm(admin,id,evidence()).andExpect(status().isConflict());
     }
-    @ParameterizedTest @ValueSource(strings={"CUSTOMER","STAFF","VENDOR","FOREIGN_MANAGER"})
+    @ParameterizedTest @ValueSource(strings={"CUSTOMER","STAFF","FOREIGN_MANAGER"})
     void onlyAuthorizedAdministratorsCanProcessOrViewEvidence(String role)throws Exception{
         Account actor=switch(role){case "STAFF"->staff;case "VENDOR"->vendor;case "FOREIGN_MANAGER"->foreignManager;default->customer;};
         long id=requested();decide(actor,id,"APPROVED","").andExpect(status().isForbidden());
@@ -128,6 +128,17 @@ class OrderCancellationTest {
         long next=json.readTree(request(customer,second.id).andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).get("id").asLong();
         decide(admin,next,"APPROVED","").andExpect(status().isOk());proof.put("refundedAt",LocalDateTime.now().toString());confirm(admin,next,proof).andExpect(status().isConflict());
         assertThat(tx().execute(tx->em.find(MealOrder.class,second.id)).paymentStatus).isEqualTo("PAID");
+    }
+    @Test void vendorCanHandleOwnShopCancellationButNotAnotherShop()throws Exception{
+        long id=requested();
+        mvc.perform(get("/api/admin/cancellations").with(user(vendor.email))).andExpect(status().isOk());
+        mvc.perform(get("/api/orders/"+order.id).with(user(vendor.email))).andExpect(status().isOk()).andExpect(jsonPath("$.cancellation.request.id").value(id));
+        tx().executeWithoutResult(tx->em.find(Account.class,vendor.id).storeId=otherStore.id);
+        decide(vendor,id,"APPROVED","").andExpect(status().isForbidden());
+        tx().executeWithoutResult(tx->em.find(Account.class,vendor.id).storeId=store.id);
+        decide(vendor,id,"APPROVED","").andExpect(status().isOk());
+        confirm(vendor,id,evidence()).andExpect(status().isOk());
+        assertThat(reload().paymentStatus).isEqualTo("REFUNDED");
     }
     @Test void legacyPostDeliveryRefundRemainsSeparate()throws Exception{
         tx().executeWithoutResult(tx->em.find(MealOrder.class,order.id).status="COMPLETED");

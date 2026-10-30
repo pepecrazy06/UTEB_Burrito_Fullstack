@@ -36,7 +36,7 @@ try {
         if ($collation -notmatch '_UTF8$') {
             throw 'Empty database needs a UTF8 collation before V1 varchar columns are created. Review and approve ALTER DATABASE separately.'
         }
-        $files = @('V1__schema.sql','V2__constraints.sql','V3__catalog_seed.sql','V4__account_birth_date.sql','V5__vnpay_payment_attempts.sql','V8__order_cancellations.sql','V9__store_coordinates.sql','V10__integrated_dat_menu.sql')
+        $files = @('V1__schema.sql','V2__constraints.sql','V3__catalog_seed.sql','V4__account_birth_date.sql','V5__vnpay_payment_attempts.sql','V8__order_cancellations.sql','V9__store_coordinates.sql','V10__integrated_dat_menu.sql','V11__commerce_completion.sql')
     } elseif ($historyExists -eq 0) {
         throw 'Existing tables without migration history: stop for a manual schema audit. Never recreate them.'
     } else {
@@ -74,7 +74,13 @@ try {
             throw 'V10 belongs to a different migration. Stop for a manual audit.'
         }
     }
-    if ($files.Count -eq 0) { Write-Output 'No pending migrations for this branch (V1-V5, V8-V10).'; return }
+    if ($tableCount -ne 0) {
+        if (11 -notin $versions) { $files += 'V11__commerce_completion.sql' }
+        elseif ([int](Read-Scalar "SELECT COUNT(*) FROM dbo.schema_migrations WHERE version_no=11 AND name=N'V11__commerce_completion'") -ne 1) {
+            throw 'V11 belongs to a different migration. Stop for a manual audit.'
+        }
+    }
+    if ($files.Count -eq 0) { Write-Output 'No pending migrations for this branch (V1-V5, V8-V11).'; return }
     Write-Output "Pending: $($files -join ', ')"
     if (!$Apply) { Write-Output 'Plan only. Run with -Apply only after approval.'; return }
     $transaction = $connection.BeginTransaction()

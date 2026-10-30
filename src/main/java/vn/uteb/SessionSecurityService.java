@@ -59,6 +59,8 @@ public class SessionSecurityService {
     void unregister(WebSocketSession session) { sockets.remove(session.getId()); }
 
     void revokeAfterCommit(Account account) {
+        // A not-yet-persisted account cannot own a session or a WebSocket.
+        if (account.id == null) return;
         Long id = account.id;
         int currentVersion = account.tokenVersion;
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {

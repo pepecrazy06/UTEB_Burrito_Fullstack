@@ -9,7 +9,7 @@ function environment(configured){
  const calls=[],state={user:{id:1,name:'Test'},cart:[{available:true}],data:{vnpayConfigured:configured},type:'PICKUP'};
  const context=vm.createContext({state,URL,crypto:{randomUUID:()=> 'test-key'},
   select(name,label,options,selected){return `<select name="${name}">${options.map(([value,text])=>`<option value="${value}"${value===selected?' selected':''}>${text}</option>`).join('')}</select>`;},
-  requireClient(ok,message){if(!ok)throw Error(message);},field:()=>'',textArea:()=>'',page:(title,subtitle,html)=>html,
+  requireClient(ok,message){if(!ok)throw Error(message);},field:()=>'',textArea:()=>'',page:(title,subtitle,html)=>html,carrierFields:()=>'',checkoutVouchers:()=>'',
   async refreshCart(){},async api(){return {addresses:[]};},location:{assign(url){calls.push(url);}},
  });
  vm.runInContext(helpers,context);

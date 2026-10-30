@@ -91,9 +91,9 @@ class StatisticsTest {
     }
     @Test void unassignedManagerGetsEmptyScopeInsteadOfGlobalData()throws Exception{var data=stats(unassigned,Map.of());money(data,"revenue","0");assertThat(data.get("availableStores").size()).isZero();getStats(unassigned,Map.of("storeId",a.id.toString())).andExpect(status().isForbidden());}
     @Test void vendorAndStaffKeepExistingBranchScope()throws Exception{for(Account actor:List.of(vendor,staff)){money(stats(actor,Map.of()),"revenue","750000");getStats(actor,Map.of("storeId",b.id.toString())).andExpect(status().isForbidden());}}
-    @Test void shipperSeesAssignedOrdersAndOwnOrdersAtHomeBranchNotWholeBranches()throws Exception{
+    @Test void shipperStatisticsContainAssignedOrdersAndExcludePersonalPurchases()throws Exception{
         tx().executeWithoutResult(tx->{em.find(MealOrder.class,branchB.id).shipperId=shipper.id;em.find(MealOrder.class,first.id).userId=shipper.id;});
-        var data=stats(shipper,Map.of());money(data,"revenue","400000");assertThat(data.get("totalOrders").asLong()).isEqualTo(2);money(stats(shipper,Map.of("storeId",b.id.toString())),"revenue","300000");getStats(shipper,Map.of("storeId",c.id.toString())).andExpect(status().isForbidden());
+        var data=stats(shipper,Map.of());money(data,"revenue","300000");assertThat(data.get("totalOrders").asLong()).isEqualTo(1);assertThat(data.get("assignedOnly").asBoolean()).isTrue();money(stats(shipper,Map.of("storeId",b.id.toString())),"revenue","300000");getStats(shipper,Map.of("storeId",c.id.toString())).andExpect(status().isForbidden());
     }
     @Test void combinedAdminRoleKeepsGlobalPrivilege()throws Exception{tx().executeWithoutResult(tx->em.find(Account.class,admin.id).roles="ADMIN,STAFF");money(stats(admin,Map.of("storeId",b.id.toString())),"revenue","300000");}
     @Test void anonymousAndCustomerCannotReadStatistics()throws Exception{mvc.perform(get("/api/admin/dashboard")).andExpect(status().isUnauthorized());getStats(buyer,Map.of()).andExpect(status().isForbidden());}
@@ -114,5 +114,10 @@ class StatisticsTest {
     }
     @Test void confirmedLegacyRefundExcludesStalePaidOrderButPendingRefundDoesNot()throws Exception{
         tx().executeWithoutResult(tx->{var refunded=order(a,buyer,"2026-11-02T10:00","COMPLETED","PAID","1000");refund(refunded);var pending=order(a,buyer,"2026-11-02T11:00","COMPLETED","PAID","2000");var request=new RefundRequest();request.orderId=pending.id;request.status="APPROVED";em.persist(request);});money(stats(admin,Map.of("startDate","2026-11-02","endDate","2026-11-02")),"revenue","2000");
+    }
+    @ParameterizedTest @ValueSource(strings={"RETURN_REQUESTED","RETURNING","RETURNED"})
+    void pendingReturnDoesNotEraseRevenueBeforeMoneyIsActuallyRefunded(String state)throws Exception{
+        tx().executeWithoutResult(tx->order(a,buyer,"2026-11-04T10:00",state,"PAID","100000"));
+        money(stats(admin,Map.of("startDate","2026-11-04","endDate","2026-11-04")),"revenue","100000");
     }
 }

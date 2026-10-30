@@ -9,7 +9,7 @@ function cancellationState(status){return status?`<p class="small fw-bold text-w
 function cancellationPanel(data,order){
  const request=data?.request;
  if(!request)return cancellationState(data?.status);
- const canManage=has('ADMIN')||(has('MANAGER')&&state.user.storeId===order.storeId);
+ const canManage=has('ADMIN')||(has('MANAGER','VENDOR')&&state.user.storeId===order.storeId);
  return `<section class="panel mt-4"><h2 class="h5 fw-bold">Yêu cầu hủy đơn đã thanh toán</h2>
   ${cancellationState(request.status)}<p>${esc(request.reason)}</p>
   <p class="small">Số tiền cần hoàn: <strong>${money(request.amount)}</strong></p>

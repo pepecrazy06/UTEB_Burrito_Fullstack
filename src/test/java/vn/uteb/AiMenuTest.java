@@ -26,10 +26,11 @@ class AiMenuTest {
         add("Salsa cà chua","SAUCE",0,25); add("Sốt cay","SAUCE",0,20); add("Không sốt","SAUCE",0,0);
     }
     void add(String name,String group,int price,int calories) {
-        Ingredient i=new Ingredient();i.id=(long)ingredients.size()+1;i.name=name;i.groupName=group;i.price=BigDecimal.valueOf(price);i.calories=calories;ingredients.add(i);
+        Ingredient i=new Ingredient();i.id=(long)ingredients.size()+1;i.name=name;i.groupName=group;i.price=BigDecimal.valueOf(price);i.calories=calories;i.vegetarian=!group.equals("PROTEIN")||name.equals("Đậu hũ chay");ingredients.add(i);
     }
     static Product product(long id,String name,String category,int price,int calories) {
-        Product p=new Product();p.id=id;p.storeId=1L;p.name=name;p.category=category;p.price=BigDecimal.valueOf(price);p.calories=calories;return p;
+        Product p=new Product();p.id=id;p.storeId=1L;p.name=name;p.category=category;p.price=BigDecimal.valueOf(price);p.calories=calories;
+        p.requiredGroups=switch(category){case "Tacos"->"PROTEIN,SAUCE";case "Salad"->"PROTEIN,BEANS,SAUCE";default->"PROTEIN,RICE,BEANS,SAUCE";};p.vegetarian=name.endsWith(" Chay");if(name.endsWith(" Bò BBQ"))p.includedProteinId=2L;return p;
     }
     MenuPreferences preferences(String protein,Integer maximum,boolean light) {
         return new MenuPreferences("FOOD",protein.isEmpty()?List.of():List.of(protein),List.of(),false,light,null,maximum,null,List.of(),false,false,"ANY",List.of(),false,"");
@@ -118,5 +119,50 @@ class AiMenuTest {
         assertThatThrownBy(()->MenuAiClient.localEndpoint("http://example.com:11434")).isInstanceOf(IllegalArgumentException.class);
         assertThat(MenuAiClient.localEndpoint("http://127.0.0.1:11434").getPath()).isEqualTo("/api/chat");
         assertThat(new MenuAiClient(json,true,"model:cloud",HttpClient.newHttpClient(),URI.create("http://127.0.0.1/api/chat")).configured()).isFalse();
+    }
+    MenuPreferences advisor(String goal,List<String> likes,List<String> keywords,int servings,Integer budget,List<String> proteins,List<String> categories){
+        return new MenuPreferences("FOOD",proteins,List.of(),false,false,null,null,null,categories,false,false,"ANY",List.of(),false,"","RECOMMEND",goal,likes,keywords,servings,budget);
+    }
+    @Test void hungryRequestKeepsRiceBeansAndRanksAFullMealInsteadOfTheLowestCalories(){
+        var result=AiMenuService.choose(List.of(product(1,"Burrito Gà nướng","Burrito",89000,320),product(2,"Tacos Gà nướng","Tacos",79000,210)),ingredients,1,advisor("FILLING",List.of(),List.of(),1,null,List.of("CHICKEN"),List.of()));
+        assertThat(result.getFirst().product().category).isEqualTo("Burrito");
+        assertThat(result.getFirst().ingredients()).extracting(i->i.name).contains("Cơm trắng","Đậu đen").doesNotContain("Không cơm","Không đậu");
+    }
+    @Test void requestedToppingsAreActuallyIncludedAndTheirCostCountsTowardBudget(){
+        add("Phô mai","TOPPING",10000,110);add("Guacamole","EXTRA",15000,100);
+        Product bowl=product(1,"Bowl Gà nướng","Bowl",89000,35);
+        var prefs=advisor("BALANCED",List.of("Phô mai","Guacamole"),List.of(),1,114000,List.of("CHICKEN"),List.of());
+        var result=AiMenuService.choose(List.of(bowl),ingredients,1,prefs).getFirst();
+        assertThat(result.ingredients()).extracting(i->i.name).contains("Phô mai","Guacamole");assertThat(result.price()).isEqualByComparingTo("114000");
+        assertThat(AiMenuService.choose(List.of(bowl),ingredients,1,advisor("VALUE",List.of("Phô mai","Guacamole"),List.of(),1,100000,List.of("CHICKEN"),List.of()))).isEmpty();
+    }
+    @Test void groupBudgetAndStockApplyToAllRequestedPortions(){
+        Product bowl=product(1,"Bowl Gà nướng","Bowl",89000,35);
+        assertThat(AiMenuService.choose(List.of(bowl),ingredients,1,advisor("BALANCED",List.of(),List.of(),2,180000,List.of(),List.of()))).hasSize(1);
+        assertThat(AiMenuService.choose(List.of(bowl),ingredients,1,advisor("BALANCED",List.of(),List.of(),3,200000,List.of(),List.of()))).isEmpty();
+        bowl.stock=1;assertThat(AiMenuService.choose(List.of(bowl),ingredients,1,advisor("BALANCED",List.of(),List.of(),2,200000,List.of(),List.of()))).isEmpty();
+    }
+    @Test void comparisonIncludesBothRequestedCategoriesAndFillings(){
+        var result=AiMenuService.choose(List.of(product(1,"Burrito Gà nướng","Burrito",89000,320),product(2,"Tacos Gà nướng","Tacos",79000,210),product(3,"Bowl Bò BBQ","Bowl",99000,35)),ingredients,1,advisor("BALANCED",List.of(),List.of(),1,null,List.of("CHICKEN","BEEF"),List.of("Burrito","Bowl")));
+        assertThat(result).extracting(r->r.product().category).contains("Burrito","Bowl");
+        assertThat(result.stream().flatMap(r->r.ingredients().stream()).filter(i->"PROTEIN".equals(i.groupName)).map(i->AiMenuService.protein(i.name))).contains("CHICKEN","BEEF");
+    }
+    @Test void fixedEggCheeseRecipeCanBeFoundWithoutPretendingItHasAChickenProtein(){
+        Product egg=product(1,"Burrito Trứng phô mai","Burrito",89000,650);egg.customizable=false;
+        var result=AiMenuService.choose(List.of(egg,product(2,"Bowl Gà nướng","Bowl",89000,35)),ingredients,1,advisor("BALANCED",List.of(),List.of("trứng phô mai"),1,null,List.of(),List.of()));
+        assertThat(result).hasSize(1);assertThat(result.getFirst().product().id).isEqualTo(egg.id);
+    }
+    @Test void askingForEggAndCheeseDoesNotReturnAnyChickenDishJustBecauseItCanHaveCheese(){
+        add("Phô mai","TOPPING",10000,110);Product egg=product(1,"Burrito Trứng phô mai","Burrito",89000,650);egg.customizable=false;
+        var result=AiMenuService.choose(List.of(egg,product(2,"Burrito Gà nướng","Burrito",89000,320)),ingredients,1,advisor("BALANCED",List.of("Phô mai"),List.of("trứng","phô mai"),1,null,List.of(),List.of("Burrito")));
+        assertThat(result).hasSize(1);assertThat(result.getFirst().product().id).isEqualTo(egg.id);
+    }
+    @Test void naturalResponseUsesOnlyPublicCatalogFactsAndPreservesBothSidesOfConversation()throws Exception{
+        HttpServer server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);AtomicReference<JsonNode> sent=new AtomicReference<>();
+        server.createContext("/api/chat",exchange->{sent.set(json.readTree(exchange.getRequestBody()));byte[] bytes=json.writeValueAsBytes(Map.of("done",true,"done_reason","stop","message",Map.of("content","{\"answer\":\"Bạn thích vị cay, nên có thể thử cấu hình gà với sốt cay bên dưới.\"}")));exchange.sendResponseHeaders(200,bytes.length);exchange.getResponseBody().write(bytes);exchange.close();});server.start();
+        try{var client=new MenuAiClient(json,true,"qwen3:4b-instruct",HttpClient.newHttpClient(),URI.create("http://127.0.0.1:"+server.getAddress().getPort()+"/api/chat"));
+            String answer=client.respond("Món thứ hai có cay không?",List.of(new AiConversationTurn("Tôi thích gà","Hai món cho bạn",List.of("Burrito Gà nướng","Tacos Gà cay"))),Map.of("exactSuggestions",List.of(Map.of("name","Tacos Gà cay","price",79000))));
+            assertThat(answer).contains("vị cay");assertThat(sent.get().path("messages").get(2).path("role").asText()).isEqualTo("assistant");assertThat(sent.get().path("messages").get(2).path("content").asText()).contains("Tacos Gà cay");assertThat(sent.get().path("messages").get(3).path("content").asText()).contains("79000");assertThat(sent.get().path("format").path("additionalProperties").asBoolean(true)).isFalse();
+        }finally{server.stop(0);}
     }
 }
