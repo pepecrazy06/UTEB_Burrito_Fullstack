@@ -125,7 +125,7 @@ class AiMenuService {
             if(!Objects.equals(p.storeId,storeId)||!p.available||p.stock<prefs.servings()) continue;
             if(!prefs.productKeywords().isEmpty()&&!prefs.productKeywords().stream().allMatch(k->plain(p.name).contains(plain(k))||plain(p.description).contains(plain(k))||(p.customizable&&prefs.preferredIngredients().stream().anyMatch(i->plain(i).contains(plain(k))))))continue;
             if(prefs.categories().isEmpty()?!Set.of("Burrito","Bowl","Tacos","Quesadilla","Salad").contains(p.category):!prefs.categories().contains(p.category)) continue;
-            if(prefs.vegetarian()&&!p.name.endsWith(" Chay")) continue;
+            if(prefs.vegetarian()&&!p.vegetarian) continue;
             if("NO".equals(prefs.spicy())&&plain(p.name).contains("cay")) continue;
             if(!p.customizable) {
                 String filling=protein(p.name);
@@ -142,7 +142,7 @@ class AiMenuService {
                     .filter(i->!prefs.avoidIngredients().contains(i.name))
                     .filter(i->!"PROTEIN".equals(group)||(!prefs.excludedProteins().contains(protein(i.name))
                         &&(prefs.proteins().isEmpty()?protein(i.name).equals(protein(p.name)):prefs.proteins().contains(protein(i.name)))
-                        &&(!p.name.endsWith(" Chay")||"TOFU".equals(protein(i.name)))))
+                        &&(!p.vegetarian||i.vegetarian)))
                     .filter(i->!"RICE".equals(group)||!prefs.noRice()||"khong com".equals(plain(i.name)))
                     .filter(i->!"BEANS".equals(group)||!prefs.noBeans()||"khong dau".equals(plain(i.name)))
                     .filter(i->!"SAUCE".equals(group)||"ANY".equals(prefs.spicy())||("YES".equals(prefs.spicy())==plain(i.name).contains("cay")))
@@ -154,7 +154,7 @@ class AiMenuService {
                 Ingredient match=catalog.stream().filter(i->i.available&&i.name.equals(wanted)&&!prefs.avoidIngredients().contains(i.name)).findFirst().orElse(null);
                 if(match==null){missingPreference=true;break;}
                 if(List.of("TOPPING","EXTRA").contains(match.groupName)){
-                    if(p.name.endsWith(" Chay")&&"them thit".equals(plain(match.name))){missingPreference=true;break;}
+                    if(p.vegetarian&&!match.vegetarian){missingPreference=true;break;}
                     additions.add(match);
                 }else if(!menuRequiredGroups(p).contains(match.groupName)){
                     if(!List.of("RICE","BEANS").contains(match.groupName)){missingPreference=true;break;}
@@ -178,15 +178,15 @@ class AiMenuService {
                 if(!selection.stream().map(i->i.name).toList().containsAll(prefs.preferredIngredients()))continue;
                 BigDecimal price=p.price; int kcal=p.calories,penalty=0;
                 for(Ingredient i:selection) {
-                    price=price.add(i.price); kcal+=p.category.equals("Kids")?(i.calories+1)/2:i.calories;
+                    price=price.add(i.price); kcal+=ingredientCalories(p,i);
                     String name=plain(i.name);
                     if("PROTEIN".equals(i.groupName)&&!protein(i.name).equals(protein(p.name))) penalty+=20;
                     if("RICE".equals(i.groupName)&&!prefs.noRice()) penalty+=name.equals("com trang")?0:name.equals("com gao lut")?1:8;
                     if("BEANS".equals(i.groupName)&&!prefs.noBeans()) penalty+=name.equals("dau den")?0:name.equals("dau pinto")?1:8;
                     if("SAUCE".equals(i.groupName)) penalty+=name.equals("YES".equals(prefs.spicy())||"ANY".equals(prefs.spicy())&&plain(p.name).contains("cay")?"sot cay":"salsa ca chua")?0:2;
                 }
-                String included=includedMenuProtein(p);
-                if(!included.isBlank()) price=price.subtract(catalog.stream().filter(i->included.equals(i.name)&&"PROTEIN".equals(i.groupName)).findFirst().map(i->i.price).orElse(BigDecimal.ZERO));
+                Long included=includedMenuProtein(p);
+                if(included!=null) price=price.subtract(catalog.stream().filter(i->included.equals(i.id)&&"PROTEIN".equals(i.groupName)).findFirst().map(i->i.price).orElse(BigDecimal.ZERO));
                 if(price.signum()<=0||!withinLimits(price,kcal,prefs)) continue;
                 Recipe candidate=new Recipe(p,List.copyOf(selection),price,kcal,penalty);
                 if(winner==null||ordering.compare(candidate,winner)<0) winner=candidate;

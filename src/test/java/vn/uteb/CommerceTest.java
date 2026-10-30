@@ -35,7 +35,8 @@ import static vn.uteb.Domain.*;
 @AutoConfigureMockMvc @Transactional
 class CommerceTest {
   @Autowired org.springframework.web.context.WebApplicationContext webContext;
-  @BeforeEach void attachMetadataToMockUserSessions(){
+  @Autowired LoginThrottle loginThrottle;
+  @BeforeEach void attachMetadataToMockUserSessions(){loginThrottle.clear();
    // @WithMockUser bypasses login; model the same server-side snapshot as a real login.
    var authentication=SecurityContextHolder.getContext().getAuthentication();
    if(authentication!=null){Account account=s.byEmail(authentication.getName());if(account!=null){
@@ -911,7 +912,7 @@ class CommerceTest {
   Account target=yc14Account("ADMIN,STAFF");String admin=yc14Token("admin");
   yc14Save(admin,"users",yc14UserBody(target,"ADMIN,SHIPPER",true)).andExpect(status().isOk());
   assertThat(target.roles).isEqualTo("ADMIN,SHIPPER");
-  yc14Save(admin,"settings",Map.of("name","yc14-matrix","settingValue","enabled"))
+  yc14Save(admin,"settings",Map.of("id",s.all(Setting.class).stream().filter(x->x.name.equals("brand")).findFirst().orElseThrow().id,"name","brand","settingValue","UTEB kiểm thử"))
    .andExpect(status().isOk());
  }
  @Test void yc14AdminCannotSelfLockOrRemoveAdminRole()throws Exception{

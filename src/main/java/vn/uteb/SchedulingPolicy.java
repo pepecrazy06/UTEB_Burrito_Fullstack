@@ -15,7 +15,9 @@ import static vn.uteb.ShopService.str;
 public class SchedulingPolicy {
     static final ZoneId ZONE=ZoneId.of("Asia/Ho_Chi_Minh");
     private static final Pattern HOURS=Pattern.compile("^([01]?\\d|2[0-3]):([0-5]\\d)\\s*[-–—]\\s*([01]?\\d|2[0-3]):([0-5]\\d)$");
+    @org.springframework.beans.factory.annotation.Autowired BusinessSettings rules;
     private final Clock clock;
+    private int rule(String name){return rules==null?Integer.parseInt(BusinessSettings.definition(name).initial()):rules.integer(name);}
     public SchedulingPolicy(){this(Clock.system(ZONE));}
     SchedulingPolicy(Clock clock){this.clock=clock.withZone(ZONE);}
     record Hours(LocalTime opens,LocalTime closes){
@@ -39,8 +41,8 @@ public class SchedulingPolicy {
         try{time=LocalDateTime.parse(value);}catch(DateTimeParseException e){throw invalid("Ngày giờ hẹn không hợp lệ. Dùng định dạng YYYY-MM-DDTHH:mm theo giờ Việt Nam, không kèm múi giờ.");}
         LocalDateTime now=LocalDateTime.now(clock);
         if(!time.isAfter(now))throw invalid("Không thể đặt món vào thời gian đã qua. Vui lòng chọn thời gian mới.");
-        if(!time.isAfter(now.plusMinutes(30)))throw invalid("Giờ hẹn cần sau thời điểm hiện tại hơn 30 phút để chuẩn bị món. Vui lòng chọn lại.");
-        if(!time.isBefore(now.plusDays(7)))throw invalid("Giờ hẹn phải trong vòng 7 ngày tới, không nhận đúng mốc 7 ngày. Vui lòng chọn ngày gần hơn.");
+        if(!time.isAfter(now.plusMinutes(rule("schedule_lead_minutes"))))throw invalid("Giờ hẹn cần sau thời điểm hiện tại hơn "+rule("schedule_lead_minutes")+" phút để chuẩn bị món. Vui lòng chọn lại.");
+        if(!time.isBefore(now.plusDays(rule("schedule_max_days"))))throw invalid("Giờ hẹn phải trong vòng "+rule("schedule_max_days")+" ngày tới, không nhận đúng mốc giới hạn. Vui lòng chọn ngày gần hơn.");
         return time;
     }
     Hours hours(String value){

@@ -26,10 +26,11 @@ class AiMenuTest {
         add("Salsa cà chua","SAUCE",0,25); add("Sốt cay","SAUCE",0,20); add("Không sốt","SAUCE",0,0);
     }
     void add(String name,String group,int price,int calories) {
-        Ingredient i=new Ingredient();i.id=(long)ingredients.size()+1;i.name=name;i.groupName=group;i.price=BigDecimal.valueOf(price);i.calories=calories;ingredients.add(i);
+        Ingredient i=new Ingredient();i.id=(long)ingredients.size()+1;i.name=name;i.groupName=group;i.price=BigDecimal.valueOf(price);i.calories=calories;i.vegetarian=!group.equals("PROTEIN")||name.equals("Đậu hũ chay");ingredients.add(i);
     }
     static Product product(long id,String name,String category,int price,int calories) {
-        Product p=new Product();p.id=id;p.storeId=1L;p.name=name;p.category=category;p.price=BigDecimal.valueOf(price);p.calories=calories;return p;
+        Product p=new Product();p.id=id;p.storeId=1L;p.name=name;p.category=category;p.price=BigDecimal.valueOf(price);p.calories=calories;
+        p.requiredGroups=switch(category){case "Tacos"->"PROTEIN,SAUCE";case "Salad"->"PROTEIN,BEANS,SAUCE";default->"PROTEIN,RICE,BEANS,SAUCE";};p.vegetarian=name.endsWith(" Chay");if(name.endsWith(" Bò BBQ"))p.includedProteinId=2L;return p;
     }
     MenuPreferences preferences(String protein,Integer maximum,boolean light) {
         return new MenuPreferences("FOOD",protein.isEmpty()?List.of():List.of(protein),List.of(),false,light,null,maximum,null,List.of(),false,false,"ANY",List.of(),false,"");
